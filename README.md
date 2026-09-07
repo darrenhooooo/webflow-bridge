@@ -1,5 +1,7 @@
 # Webflow Bridge
 
+**[English](README.md) | [中文](README.zh-CN.md)**
+
 > A free, local browser-automation bridge, formerly **Rhino Bridge**.
 > Protocol-compatible **Kimi WebBridge** replacement (no cloud, no accounts).
 
