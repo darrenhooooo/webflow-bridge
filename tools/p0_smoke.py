@@ -223,17 +223,31 @@ def main() -> int:
         return True, f"refs {refs[0]}..{refs[-1]}"
     cases.append(("snapshot page 1 (start=10, full-list @e refs)", c_snap_p1))
 
+    # @eN 是全列表文档序索引, 与页面元素编号无关: 可见可交互元素从
+    # input#name 起为 @e0..@e7, INIT_JS 注入的 #many 按钮从 @e8 起,
+    # 因此 item-2 = @e10。不能硬编码 "点击 @e10 就是 item-10",
+    # 而是从快照拿 page-1 第一个 ref 再点击, 验证其点击结果与快照一致。
     def c_click_page1_ref():
-        ok, v = ok_value(act("click", {"selector": "@e10"}))
+        ok, v = ok_value(act("snapshot", {"max": 10, "start": 10}))
         if not ok:
-            return False, f"click @e10 failed: {v}"
+            return False, f"page-1 snapshot failed: {v}"
+        nodes = (v or {}).get("nodes") or []
+        if not nodes:
+            return False, "page-1 snapshot returned no nodes"
+        ref = nodes[0].get("ref")
+        snap_text = (nodes[0].get("text") or "").strip()
+        if not ref or not snap_text:
+            return False, f"page-1 first node lacks ref/text: {nodes[0]}"
+        ok, v = ok_value(act("click", {"selector": ref}))
+        if not ok:
+            return False, f"click {ref} failed: {v}"
         if not (v or {}).get("success"):
             return False, f"click not success: {v}"
-        text = (v or {}).get("text", "")
-        if "item-10" not in text:
-            return False, f"clicked wrong element (text={text!r}); page-1 @e ref must stay valid"
-        return True, f"clicked: {text!r}"
-    cases.append(("click @eN from snapshot page 1 (item-10)", c_click_page1_ref))
+        text = (v or {}).get("text", "").strip()
+        if text != snap_text:
+            return False, f"clicked wrong element (text={text!r}, snapshot={snap_text!r}); page-1 @e ref must stay valid"
+        return True, f"clicked {ref}: {text!r}"
+    cases.append(("click page-1 snapshot ref matches snapshot", c_click_page1_ref))
 
     # ---- 4/5. fill_form + verify ---------------------------------------
     def c_fill_form():
