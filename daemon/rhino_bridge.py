@@ -126,6 +126,8 @@ import hashlib
 import itertools
 import json
 import logging
+import mimetypes
+import os
 import socket
 import struct
 import threading
@@ -518,12 +520,20 @@ class Bridge:
             ):
                 return 200, {"status": "error",
                              "error": "'args.max' must be a positive integer when provided"}
+            start = args.get("start")
+            if start is not None and (
+                not isinstance(start, int) or isinstance(start, bool) or start < 0
+            ):
+                return 200, {"status": "error",
+                             "error": "'args.start' must be a non-negative integer when provided"}
             tab_id, err = self._validated_tab_id(args)
             if err:
                 return err
             ws_payload = {"id": rid, "action": "snapshot"}
             if max_nodes is not None:
                 ws_payload["max"] = max_nodes
+            if start is not None:
+                ws_payload["start"] = start
             if tab_id is not None:
                 ws_payload["tabId"] = tab_id
             ok, res = self._roundtrip(ws_payload)
@@ -700,6 +710,200 @@ class Bridge:
                 ws_payload["selector"] = selector
             if tab_id is not None:
                 ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "submit":
+            rid = self._next_request_id()
+            selector = args.get("selector")
+            if not isinstance(selector, str) or not selector.strip():
+                return 200, {"status": "error",
+                             "error": "'args.selector' (CSS | @eN) is required"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            ws_payload = {"id": rid, "action": "submit", "selector": selector}
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "fill_form":
+            rid = self._next_request_id()
+            fields = args.get("fields")
+            if not isinstance(fields, list) or not fields:
+                return 200, {"status": "error",
+                             "error": "'args.fields' (non-empty array of {selector, value}) is required"}
+            for f in fields:
+                if (not isinstance(f, dict) or not isinstance(f.get("selector"), str)
+                        or not f["selector"].strip() or not isinstance(f.get("value"), str)):
+                    return 200, {"status": "error",
+                                 "error": "every 'args.fields' item needs {selector (CSS | @eN), value (string)}"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            ws_payload = {"id": rid, "action": "fill_form", "fields": fields}
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "wait_for":
+            rid = self._next_request_id()
+            selector = args.get("selector")
+            if selector is not None and (not isinstance(selector, str) or not selector.strip()):
+                return 200, {"status": "error",
+                             "error": "'args.selector' must be a non-empty string when provided"}
+            text = args.get("text")
+            if text is not None and not isinstance(text, str):
+                return 200, {"status": "error",
+                             "error": "'args.text' must be a string when provided"}
+            if (selector is None or not str(selector).strip()) and (
+                    text is None or not str(text).strip()):
+                return 200, {"status": "error",
+                             "error": "'wait_for' needs 'args.selector' and/or 'args.text'"}
+            for key in ("timeoutMs", "intervalMs"):
+                val = args.get(key)
+                if val is not None and (not isinstance(val, int) or isinstance(val, bool) or val <= 0):
+                    return 200, {"status": "error",
+                                 "error": f"'args.{key}' must be a positive integer when provided"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            ws_payload = {"id": rid, "action": "wait_for"}
+            if selector is not None:
+                ws_payload["selector"] = selector
+            if text is not None:
+                ws_payload["text"] = text
+            if args.get("timeoutMs") is not None:
+                ws_payload["timeoutMs"] = args["timeoutMs"]
+            if args.get("intervalMs") is not None:
+                ws_payload["intervalMs"] = args["intervalMs"]
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "handle_dialog":
+            rid = self._next_request_id()
+            accept = args.get("accept")
+            if accept is not None and not isinstance(accept, bool):
+                return 200, {"status": "error",
+                             "error": "'args.accept' must be a boolean when provided"}
+            prompt_text = args.get("promptText")
+            if prompt_text is not None and not isinstance(prompt_text, str):
+                return 200, {"status": "error",
+                             "error": "'args.promptText' must be a string when provided"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            ws_payload = {"id": rid, "action": "handle_dialog"}
+            if accept is not None:
+                ws_payload["accept"] = accept
+            if prompt_text is not None:
+                ws_payload["promptText"] = prompt_text
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "drop":
+            rid = self._next_request_id()
+            selector = args.get("selector")
+            if not isinstance(selector, str) or not selector.strip():
+                return 200, {"status": "error",
+                             "error": "'args.selector' (CSS | @eN drop-zone) is required"}
+            # The daemon reads the local file(s) and forwards base64 payloads;
+            # the extension cannot read arbitrary local paths.
+            paths = []
+            single = args.get("file")
+            multi = args.get("files")
+            if isinstance(single, str) and single.strip():
+                paths = [single]
+            elif isinstance(multi, list) and multi:
+                if not all(isinstance(p, str) and p.strip() for p in multi):
+                    return 200, {"status": "error",
+                                 "error": "'args.files' must be an array of path strings"}
+                paths = list(multi)
+            else:
+                return 200, {"status": "error",
+                             "error": "'args.file' (single path) or 'args.files' (array) is required"}
+            files = []
+            try:
+                for path in paths:
+                    size = os.path.getsize(path)
+                    if size > 32 << 20:
+                        return 200, {"status": "error",
+                                     "error": f"file too large for drop: {path} ({size} bytes > 32 MiB)"}
+                    with open(path, "rb") as fh:
+                        data = base64.b64encode(fh.read()).decode("ascii")
+                    files.append({
+                        "name": os.path.basename(path),
+                        "mime": mimetypes.guess_type(path)[0] or "application/octet-stream",
+                        "data": data,
+                    })
+            except OSError as exc:
+                return 200, {"status": "error",
+                             "error": f"cannot read drop file: {exc}"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            ws_payload = {"id": rid, "action": "drop", "selector": selector,
+                          "files": files}
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "resize_page":
+            rid = self._next_request_id()
+            width = args.get("width")
+            height = args.get("height")
+            if (not isinstance(width, int) or isinstance(width, bool) or width <= 0
+                    or not isinstance(height, int) or isinstance(height, bool) or height <= 0):
+                return 200, {"status": "error",
+                             "error": "'args.width'/'args.height' (positive integers) are required"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            ws_payload = {"id": rid, "action": "resize_page",
+                          "width": width, "height": height}
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "list_network_requests":
+            rid = self._next_request_id()
+            ws_payload = {"id": rid, "action": "list_network_requests"}
+            limit = args.get("limit")
+            if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0):
+                return 200, {"status": "error",
+                             "error": "'args.limit' must be a positive integer when provided"}
+            if limit is not None:
+                ws_payload["limit"] = limit
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "get_network_request":
+            rid = self._next_request_id()
+            request_id = args.get("requestId")
+            if not isinstance(request_id, str) or not request_id.strip():
+                return 200, {"status": "error",
+                             "error": "'args.requestId' (string) is required — see list_network_requests"}
+            ok, res = self._roundtrip(
+                {"id": rid, "action": "get_network_request", "requestId": request_id})
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "list_console_messages":
+            rid = self._next_request_id()
+            ws_payload = {"id": rid, "action": "list_console_messages"}
+            limit = args.get("limit")
+            if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0):
+                return 200, {"status": "error",
+                             "error": "'args.limit' must be a positive integer when provided"}
+            if limit is not None:
+                ws_payload["limit"] = limit
             ok, res = self._roundtrip(ws_payload)
             if ok:
                 return 200, {"status": "ok", "data": {"value": res.get("value")}}

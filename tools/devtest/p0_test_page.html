@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Webflow Bridge P0 Test Page</title>
+<style>
+  body { font-family: sans-serif; margin: 24px; }
+  #dropzone { width: 320px; height: 90px; border: 2px dashed #888; display: flex;
+              align-items: center; justify-content: center; margin: 8px 0; }
+  #many { margin-top: 16px; }
+  #many button { margin: 2px; }
+</style>
+</head>
+<body>
+<h1>Webflow Bridge P0 test page</h1>
+
+<form id="f1">
+  <input id="name" type="text" placeholder="Name">
+  <input id="email" type="email" placeholder="Email">
+  <select id="role">
+    <option value="">-- role --</option>
+    <option value="alpha">Alpha</option>
+    <option value="beta">Beta</option>
+  </select>
+  <textarea id="bio" placeholder="Bio"></textarea>
+  <button id="btn-submit" type="submit">Submit</button>
+</form>
+<div id="submit-result">-</div>
+
+<button id="btn-confirm">confirm dialog</button>
+<button id="btn-prompt">prompt dialog</button>
+<div id="dialog-result">-</div>
+
+<button id="btn-late">spawn late element</button>
+<div id="late-zone"></div>
+
+<div id="dropzone">drop files here</div>
+<div id="dropinfo">-</div>
+
+<!-- Static page: the smoke harness injects window.__p0 + listeners + the
+     #many buttons AFTER navigation via Runtime.evaluate, so no inline script
+     timing can interfere with the action tests. -->
+</body>
+</html>

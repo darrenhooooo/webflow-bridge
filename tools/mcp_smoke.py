@@ -31,11 +31,15 @@ MCP_DIR = REPO_ROOT / "mcp"
 DAEMON_BASE = os.environ.get("WEBFLOW_DAEMON", "http://127.0.0.1:10086").rstrip("/")
 
 EXPECTED_TOOLS = [
-    "wf_evaluate",
-    "wf_cdp",
-    "wf_navigate",
-    "wf_tabs_list",
-    "wf_tabs_activate",
+    "wf_evaluate", "wf_cdp", "wf_probe",
+    "wf_navigate", "wf_find_tab", "wf_tabs_list", "wf_tabs_open",
+    "wf_tabs_activate", "wf_tabs_close", "wf_tabs_close_all_but",
+    "wf_snapshot", "wf_click", "wf_fill", "wf_fill_form", "wf_submit",
+    "wf_wait_for", "wf_handle_dialog", "wf_drop", "wf_send_key",
+    "wf_type_text", "wf_mouse_click", "wf_resize_page",
+    "wf_screenshot", "wf_upload", "wf_save_as_pdf",
+    "wf_list_network_requests", "wf_get_network_request",
+    "wf_list_console_messages",
 ]
 EVAL_CODE = "(() => ({title: document.title, ok: 1+1}))()"
 
@@ -107,11 +111,11 @@ async def main() -> int:
                 names = _tool_names(list_result)
                 missing = [t for t in EXPECTED_TOOLS if t not in names]
                 if missing:
-                    _step(False, "tools/list exposes the 5 wf_* tools",
+                    _step(False, "tools/list exposes the wf_* tool set",
                           f"missing: {missing}; got: {sorted(names)}")
                     return 1
-                _step(True, "tools/list exposes the 5 wf_* tools",
-                      ", ".join(EXPECTED_TOOLS))
+                _step(True, "tools/list exposes the wf_* tool set",
+                      f"{len(EXPECTED_TOOLS)} tools: {', '.join(EXPECTED_TOOLS)}")
 
                 # ---- wf_tabs_list (hard gate: protocol round-trip to daemon) ----
                 res = await session.call_tool("wf_tabs_list", {})

@@ -145,6 +145,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
     console.warn('[web-flow] debugger session ended on tab',
                  source.tabId, 'reason:', reason);
     debuggerTabId = null;
+    pendingDialog = null;
   }
 });
 
@@ -242,6 +243,7 @@ async function ensureDebuggerLocked(tabId) {
     try {
       await chrome.debugger.attach({ tabId }, DEBUGGER_VERSION);
       debuggerTabId = tabId;
+      try { await enableCollectorDomains(tabId); } catch (_) { /* best-effort */ }
       return null;
     } catch (err) {
       const text = String((err && err.message) || err);
@@ -267,6 +269,114 @@ async function ensureDebuggerLocked(tabId) {
   return 'cannot attach debugger to tab ' + tabId;
 }
 
+// ---------------- CDP event collectors (network / console) ----------------
+// The single debugger session (one attached tab at a time) also feeds two
+// bounded ring buffers of CDP events. list_network_requests /
+// get_network_request / list_console_messages read them. Buffers are reset
+// on every (re)attach so their contents always describe the current session
+// from its attach point onward. Domains are enabled best-effort: if an
+// enable fails the session still works, the collectors just stay empty.
+
+const EVENT_CAP = 300;
+let netEvents = [];        // [{requestId,url,method,type,status,mimeType,size,timestamp}]
+let consoleEvents = [];    // [{type,text,timestamp}]
+
+// JS-dialog state machine (Page domain). Chrome auto-dismisses dialogs while
+// a debugger is attached UNLESS something listens for the opening event and
+// resolves them via Page.handleJavaScriptDialog. We keep the latest opening
+// here so the handle_dialog action can accept/dismiss/answer it. While an
+// entry is pending the page script is blocked on the dialog, so handle_dialog
+// must always resolve it (see handleDialog) or the tab hangs.
+let pendingDialog = null;  // {type,message,defaultPrompt,url,hasBrowserHandler} | null
+
+function ringPush(arr, item) {
+  arr.push(item);
+  if (arr.length > EVENT_CAP) arr.splice(0, arr.length - EVENT_CAP);
+}
+
+async function enableCollectorDomains(tabId) {
+  netEvents = [];
+  consoleEvents = [];
+  // Page.enable makes JS dialogs (alert/confirm/prompt/beforeunload) surface
+  // as Page.javascriptDialogOpening events instead of Chrome auto-dismissing
+  // them while a debugger is attached (see handleDialog below).
+  for (const method of ['Network.enable', 'Runtime.enable', 'Page.enable']) {
+    try { await chrome.debugger.sendCommand({ tabId }, method); }
+    catch (_) { /* collectors are best-effort */ }
+  }
+}
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (!source || source.tabId !== debuggerTabId) return;   // only our session
+  if (!params || typeof params !== 'object') return;
+  try {
+    if (method === 'Network.requestWillBeSent') {
+      const req = params.request || {};
+      const url = typeof req.url === 'string' ? req.url : '';
+      if (!/^https?:/i.test(url)) return;   // skip chrome-extension:// data: noise
+      ringPush(netEvents, {
+        requestId: String(params.requestId || ''),
+        url,
+        method: typeof req.method === 'string' ? req.method : '',
+        type: typeof params.type === 'string' ? params.type : '',
+        status: null,
+        mimeType: null,
+        size: null,
+        timestamp: Date.now(),
+      });
+    } else if (method === 'Network.responseReceived') {
+      const rec = netEvents.find((e) => e.requestId === String(params.requestId));
+      if (!rec) return;
+      const resp = params.response || {};
+      rec.status = typeof resp.status === 'number' ? resp.status : null;
+      rec.mimeType = typeof resp.mimeType === 'string' ? resp.mimeType : null;
+    } else if (method === 'Network.loadingFinished') {
+      const rec = netEvents.find((e) => e.requestId === String(params.requestId));
+      if (!rec) return;
+      rec.size = (typeof params.encodedDataLength === 'number')
+        ? params.encodedDataLength : null;
+    } else if (method === 'Runtime.consoleAPICalled') {
+      const parts = (params.args || []).map((a) => {
+        if (!a) return '';
+        if (a.value !== undefined) {
+          return (typeof a.value === 'string') ? a.value : JSON.stringify(a.value);
+        }
+        return (typeof a.description === 'string') ? a.description : '';
+      });
+      ringPush(consoleEvents, {
+        type: String(params.type || 'log'),
+        text: parts.join(' ').slice(0, 2000),
+        timestamp: Date.now(),
+      });
+    } else if (method === 'Runtime.exceptionThrown') {
+      const d = params.exceptionDetails || {};
+      let text = d.text || 'Uncaught';
+      if (d.exception && typeof d.exception.description === 'string') {
+        text += ': ' + d.exception.description;
+      }
+      ringPush(consoleEvents, {
+        type: 'exception',
+        text: String(text).slice(0, 500),
+        timestamp: Date.now(),
+      });
+    } else if (method === 'Page.javascriptDialogOpening') {
+      // The page is now blocked on the dialog until we resolve it via
+      // Page.handleJavaScriptDialog (see handleDialog). Keep the newest
+      // opening — the page can only block on one dialog at a time.
+      pendingDialog = {
+        type: String(params.type || 'alert'),
+        message: typeof params.message === 'string' ? params.message : '',
+        defaultPrompt: typeof params.defaultPrompt === 'string' ? params.defaultPrompt : '',
+        url: typeof params.url === 'string' ? params.url : '',
+        hasBrowserHandler: !!params.hasBrowserHandler,
+        openedAt: Date.now(),
+      };
+    } else if (method === 'Page.javascriptDialogClosed') {
+      pendingDialog = null;
+    }
+  } catch (_) { /* a malformed event must never break the session */ }
+});
+
 // One CDP command shared by the evaluate action and the probe's P7. A
 // transport-level rejection while we believed the session was live means the
 // session is dead — reset it so the next evaluate attaches a fresh one, then
@@ -278,6 +388,10 @@ async function runtimeEvaluate(tabId, expression) {
       returnByValue: true,   // send the completion value as JSON
       awaitPromise: true,    // await a Promise completion value
       userGesture: true,     // treat as user-initiated
+      replMode: true,        // console-style evaluation: a re-run of a
+                             // snippet that redeclares top-level let/const/
+                             // class no longer raises "already declared"
+                             // (the DevTools console semantics)
     });
   } catch (err) {
     if (debuggerTabId === tabId) {
@@ -372,6 +486,24 @@ async function handleMessage(ev) {
       await handleSendKey(msg);
     } else if (msg.action === 'type_text') {
       await handleTypeText(msg);
+    } else if (msg.action === 'submit') {
+      await handleSubmit(msg);
+    } else if (msg.action === 'fill_form') {
+      await handleFillForm(msg);
+    } else if (msg.action === 'wait_for') {
+      await handleWaitFor(msg);
+    } else if (msg.action === 'handle_dialog') {
+      await handleDialog(msg);
+    } else if (msg.action === 'drop') {
+      await handleDrop(msg);
+    } else if (msg.action === 'resize_page') {
+      await handleResizePage(msg);
+    } else if (msg.action === 'list_network_requests') {
+      await handleListNetworkRequests(msg);
+    } else if (msg.action === 'get_network_request') {
+      await handleGetNetworkRequest(msg);
+    } else if (msg.action === 'list_console_messages') {
+      await handleListConsoleMessages(msg);
     } else {                                  // evaluate (default)
       await handleEvaluate(msg);
     }
@@ -689,9 +821,10 @@ async function handleFindTab(msg) {
 // (Runtime.evaluate without a contextId; iframes are ignored this pass). Each
 // element is guarded so a mid-walk change (e.g. a detached node) skips it
 // instead of failing the snapshot.
-function snapshotExpression(max) {
+function snapshotExpression(start, limit) {
   return `(() => {
-  const MAX = ${max};
+  const START = ${start};
+  const LIMIT = ${limit};
   const ROLE_OK = new Set(["button", "link", "textbox", "combobox", "checkbox", "radio", "menuitem", "tab", "option"]);
   const SEL = 'a[href],button,input:not([type="hidden"]),textarea,select,[contenteditable],[role],[summary],img[alt]';
   function isVisible(el) {
@@ -806,7 +939,8 @@ function snapshotExpression(max) {
     return { error: "snapshot failed: " + String((err && err.message) || err) };
   }
   const out = [];
-  for (let i = 0; i < els.length && out.length < MAX; i += 1) {
+  let total = 0;
+  for (let i = 0; i < els.length; i += 1) {
     const el = els[i];
     try {
       if (!isVisible(el) || !isAllowed(el)) continue;
@@ -817,8 +951,11 @@ function snapshotExpression(max) {
       // Empty-text skip applies to NON-control containers only; controls are
       // always kept (empty inputs / contenteditable editors are fill targets).
       if (!isControl(el) && !name && !text && !role) continue;
+      total += 1;
+      if (total <= START) continue;                // element before this page
+      if (out.length >= LIMIT) continue;           // page full; keep counting total
       out.push({
-        ref: "@e" + out.length,
+        ref: "@e" + (total - 1),   // FULL-list index — stable across pages
         tag: el.tagName.toLowerCase(),
         role: role,
         name: name,
@@ -827,7 +964,8 @@ function snapshotExpression(max) {
       });
     } catch (err) { /* element changed mid-walk (detached) — skip it */ }
   }
-  return { url: location.href, title: document.title, nodes: out };
+  return { url: location.href, title: document.title, total: total,
+           start: START, nodes: out };
 })()`;
 }
 
@@ -936,9 +1074,11 @@ function focusExpression(sel) {
 async function handleSnapshot(msg) {
   const tabId = await targetTabId(msg);
   const tab = await chrome.tabs.get(tabId);   // fail fast on stale ids
+  let start = 0;
+  if (Number.isInteger(msg.start) && msg.start > 0) start = msg.start;
   let max = 400;
   if (Number.isInteger(msg.max) && msg.max > 0) max = Math.min(msg.max, 5000);
-  const result = await evaluateOnTab(tab, snapshotExpression(max));
+  const result = await evaluateOnTab(tab, snapshotExpression(start, max));
   if (!result.ok) {
     send({ id: msg.id, ok: false, error: result.error });
     return;
@@ -950,17 +1090,26 @@ async function handleSnapshot(msg) {
     return;
   }
   const nodes = Array.isArray(value.nodes) ? value.nodes : [];
-  const byRef = {};
-  const byIndex = [];
-  for (let i = 0; i < nodes.length; i += 1) {
-    const path = nodes[i] && nodes[i].path;
-    if (typeof path !== 'string' || !path) continue;
-    byRef['@e' + i] = path;
-    byIndex.push(path);
+  // @e refs are FULL-list indices; a later page (start > 0) MERGES into the
+  // cache so refs from earlier pages keep resolving until the DOM changes or
+  // a fresh start=0 snapshot resets the cache.
+  if (start === 0 || !lastSnapshot || lastSnapshot.tabId !== tabId) {
+    lastSnapshot = { tabId, byRef: {}, byIndex: [] };
   }
-  lastSnapshot = { tabId, byRef, byIndex };
-  send({ id: msg.id, ok: true,
-         value: { url: value.url || null, title: value.title || null, nodes } });
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i] || {};
+    const ref = node.ref;
+    const path = node.path;
+    if (typeof ref !== 'string' || typeof path !== 'string' || !path) continue;
+    lastSnapshot.byRef[ref] = path;
+    lastSnapshot.byIndex.push(path);
+  }
+  send({ id: msg.id, ok: true, value: {
+    url: value.url || null, title: value.title || null,
+    total: (typeof value.total === 'number') ? value.total : nodes.length,
+    start,
+    nodes,
+  } });
 }
 
 // "click": click an element addressed by a CSS selector or a snapshot "@eN"
@@ -1510,6 +1659,345 @@ async function handleTypeText(msg) {
   await cdpSend(tabId, 'Input.insertText', { text: msg.text });
   send({ id: msg.id, ok: true,
          value: { success: true, len: msg.text.length } });
+}
+
+// ---------------- P0 upgrade actions (submit/fill_form/wait_for/dialog/ -
+// ---------------- drop/resize/network/console) ---------------------------
+// New high-frequency agent actions. All element addressing keeps the CSS|@eN
+// convention: @eN refs resolve through lastSnapshot (see resolveElement);
+// raster/keyboard actions go through the shared cdpSend; page reads/writes go
+// through evaluateOnTab snippets (IIFE — replMode-safe).
+
+// "submit": requestSubmit on the form around the target (form itself, a form
+// control, or a button inside one). Falls back to el.click() when no form /
+// requestSubmit exists so a bare submit button still fires its handler.
+function submitExpression(sel) {
+  return `(() => {
+  try {
+    const sel = ${JSON.stringify(sel)};
+    const el = document.querySelector(sel);
+    if (!el) return { error: "element not found: " + sel };
+    if (typeof el.scrollIntoView === "function") {
+      try { el.scrollIntoView({ block: "center" }); } catch (err) { /* noop */ }
+    }
+    const tag = (el.tagName || "").toLowerCase();
+    let form = null;
+    if (tag === "form") form = el;
+    else if (el.form) form = el.form;
+    else if (typeof el.closest === "function") form = el.closest("form");
+    if (form && typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+      return { success: true, tag: tag, mode: "requestSubmit" };
+    }
+    el.click();
+    return { success: true, tag: tag, mode: "click" };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+})()`;
+}
+
+// "fill_form": fill many value-type controls (input/textarea/select) in ONE
+// page pass (native value setter + input/change — React-safe). contenteditable
+// fields are reported as errors (they need CDP Input.insertText; use fill with
+// mode:"contenteditable" per field). value = {success, filled:[...],
+// errors:[{selector,error}]} — a field error never aborts the other fields.
+function fillFormExpression(fields) {
+  return `(() => {
+  const fields = ${JSON.stringify(fields)};
+  const filled = [];
+  const errors = [];
+  function nativeSet(el, value) {
+    const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, "value");
+    if (desc && desc.set) desc.set.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  for (const f of fields) {
+    try {
+      const el = document.querySelector(f.sel);
+      if (!el) { errors.push({ selector: f.sel, error: "element not found" }); continue; }
+      const tag = (el.tagName || "");   // keep UPPERCASE — compared to literals below
+      if (tag === "SELECT") {
+        el.value = f.value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } else if (tag === "INPUT" || tag === "TEXTAREA") {
+        nativeSet(el, f.value);
+      } else if (el.isContentEditable || (el.getAttribute && (el.getAttribute("contenteditable") === "" || el.getAttribute("contenteditable") === "true" || el.getAttribute("contenteditable") === "plaintext-only"))) {
+        errors.push({ selector: f.sel, error: 'contenteditable — fill it separately with mode:"contenteditable"' });
+        continue;
+      } else {
+        errors.push({ selector: f.sel, error: "unsupported element <" + tag + ">" });
+        continue;
+      }
+      filled.push(f.sel);
+    } catch (err) {
+      errors.push({ selector: f.sel, error: String((err && err.message) || err) });
+    }
+  }
+  return { success: true, filled: filled, errors: errors };
+})()`;
+}
+
+// wait_for check expressions: element exists AND has a layout box; with text,
+// innerText/value must contain it. selector may be null (whole-document text
+// scan). Every check is an IIFE returning a boolean — replMode-safe.
+function buildWaitCheckExpression(css, text) {
+  const t = JSON.stringify(text);
+  if (css && !text) {
+    return `(() => { try { const el = document.querySelector(${JSON.stringify(css)});
+      if (!el) return false; const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      return !!r && (r.width > 0 || r.height > 0); } catch (_) { return false; } })()`;
+  }
+  if (css && text) {
+    return `(() => { try { const el = document.querySelector(${JSON.stringify(css)});
+      if (!el) return false; const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      if (!r || (r.width === 0 && r.height === 0)) return false;
+      const hay = ((el.innerText || "") + " " + (el.value !== undefined ? String(el.value) : ""));
+      return hay.indexOf(${t}) !== -1; } catch (_) { return false; } })()`;
+  }
+  return `(() => { const t = ${t};
+    try { const all = document.querySelectorAll("body *");
+      for (const el of all) {
+        const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (!r || (r.width === 0 && r.height === 0)) continue;
+        const hay = ((el.innerText || "") + " " + (el.value !== undefined ? String(el.value) : ""));
+        if (hay.indexOf(t) !== -1) return true;
+      } } catch (_) { return false; } return false; })()`;
+}
+
+// "drop": build a real File per item (name/mime/base64 data) in the page
+// MAIN world and dispatch dragenter/dragover/drop onto the target element —
+// the same DataTransfer path the publish scripts already use for image drops.
+function dropExpression(sel, files) {
+  return `(() => {
+  try {
+    const sel = ${JSON.stringify(sel)};
+    const files = ${JSON.stringify(files)};
+    const el = document.querySelector(sel);
+    if (!el) return { error: "element not found: " + sel };
+    if (typeof el.scrollIntoView === "function") {
+      try { el.scrollIntoView({ block: "center" }); } catch (err) { /* noop */ }
+    }
+    const dt = new DataTransfer();
+    for (const f of files) {
+      const bin = atob(f.data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      const file = new File([bytes], f.name, { type: f.mime || "application/octet-stream" });
+      dt.items.add(file);
+    }
+    const opts = { bubbles: true, cancelable: true, dataTransfer: dt };
+    el.dispatchEvent(new DragEvent("dragenter", opts));
+    el.dispatchEvent(new DragEvent("dragover", opts));
+    el.dispatchEvent(new DragEvent("drop", opts));
+    el.dispatchEvent(new DragEvent("dragleave", opts));
+    return { success: true, dropped: files.length };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+})()`;
+}
+
+// "submit" — see submitExpression.
+async function handleSubmit(msg) {
+  if (typeof msg.selector !== 'string' || !msg.selector.trim()) {
+    throw new Error('submit needs a selector (form, control or submit button)');
+  }
+  const tabId = await targetTabId(msg);
+  const path = resolveElement(tabId, msg.selector);
+  const tab = await chrome.tabs.get(tabId);
+  const r = await evaluateOnTab(tab, submitExpression(path));
+  if (!r.ok) { send({ id: msg.id, ok: false, error: r.error }); return; }
+  const v = r.value || {};
+  if (v.error) { send({ id: msg.id, ok: false, error: v.error }); return; }
+  send({ id: msg.id, ok: true, value: v });
+}
+
+// "fill_form" — batch fill, see fillFormExpression.
+async function handleFillForm(msg) {
+  const raw = msg.fields;
+  if (!Array.isArray(raw) || !raw.length) {
+    throw new Error("fill_form needs fields:[{selector,value}, ...]");
+  }
+  const tabId = await targetTabId(msg);
+  const fields = [];
+  for (const f of raw) {
+    if (!f || typeof f.value !== 'string' ||
+        typeof f.selector !== 'string' || !f.selector.trim()) {
+      throw new Error('every field needs {selector (CSS|@eN), value (string)}');
+    }
+    fields.push({ sel: resolveElement(tabId, f.selector.trim()), value: f.value });
+  }
+  const tab = await chrome.tabs.get(tabId);
+  const r = await evaluateOnTab(tab, fillFormExpression(fields));
+  if (!r.ok) { send({ id: msg.id, ok: false, error: r.error }); return; }
+  const v = r.value || {};
+  if (v.error) { send({ id: msg.id, ok: false, error: v.error }); return; }
+  send({ id: msg.id, ok: true, value: v });
+}
+
+// "wait_for" — poll until the target appears (and optionally contains text).
+// Selector is resolved ONCE (CSS or @eN) and the check runs page-side every
+// intervalMs; default timeout 10 s, max 90 s (daemon EVAL_TIMEOUT is 120 s).
+async function handleWaitFor(msg) {
+  const timeout = (Number.isInteger(msg.timeoutMs) && msg.timeoutMs > 0)
+    ? Math.min(msg.timeoutMs, 90000) : 10000;
+  const interval = (Number.isInteger(msg.intervalMs) && msg.intervalMs > 0)
+    ? Math.min(msg.intervalMs, 2000) : 300;
+  const tabId = await targetTabId(msg);
+  const tab = await chrome.tabs.get(tabId);
+
+  let css = null;
+  if (typeof msg.selector === 'string' && msg.selector.trim()) {
+    css = resolveElement(tabId, msg.selector, msg.index);
+  }
+  const text = (typeof msg.text === 'string' && msg.text) ? msg.text : null;
+  if (!css && !text) throw new Error('wait_for needs a selector and/or text');
+  const check = buildWaitCheckExpression(css, text);
+  const started = Date.now();
+  for (;;) {
+    const r = await evaluateOnTab(tab, check);
+    if (!r.ok) { send({ id: msg.id, ok: false, error: r.error }); return; }
+    if (r.value === true) {
+      send({ id: msg.id, ok: true,
+             value: { found: true, elapsedMs: Date.now() - started } });
+      return;
+    }
+    if (Date.now() - started >= timeout) {
+      send({ id: msg.id, ok: false,
+             error: 'wait_for timed out after ' + timeout + 'ms' +
+                    (css ? ' selector=' + css : '') +
+                    (text ? ' text=' + JSON.stringify(text) : '') });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+}
+
+// "handle_dialog": accept/dismiss/answer the JavaScript dialog (alert/
+// confirm/prompt/beforeunload) currently showing on the target tab.
+//
+// Chrome suppresses native dialogs while a debugger is attached: the page
+// blocks on the dialog and the extension sees Page.javascriptDialogOpening
+// (we enable the Page domain on attach). handleDialog waits up to timeoutMs
+// (default 2000) for that event — the caller usually clicks the element that
+// opens the dialog first — then resolves it via Page.handleJavaScriptDialog.
+// accept defaults true (OK); promptText answers a prompt(). If the page never
+// opened a dialog the wait times out with a clean {ok:false, error}.
+async function handleDialog(msg) {
+  const tabId = await targetTabId(msg);
+  await chrome.tabs.get(tabId);
+  const accept = msg.accept !== false;
+  const promptText = (typeof msg.promptText === 'string') ? msg.promptText : null;
+  const timeoutMs = (Number.isInteger(msg.timeoutMs) && msg.timeoutMs > 0)
+    ? Math.min(msg.timeoutMs, 15000) : 2000;
+
+  // Make sure the debugger session is live and the Page domain is enabled so
+  // javascriptDialogOpening actually reaches us.
+  const attachError = await ensureDebugger(tabId);
+  if (attachError) throw new Error(attachError);
+  try { await chrome.debugger.sendCommand({ tabId }, 'Page.enable'); }
+  catch (_) { /* best-effort */ }
+
+  const deadline = Date.now() + timeoutMs;
+  while (!pendingDialog && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const dialog = pendingDialog;
+  if (!dialog) {
+    send({ id: msg.id, ok: false,
+           error: `no JavaScript dialog is showing within ${timeoutMs}ms` });
+    return;
+  }
+  const params = { accept };
+  if (promptText !== null) params.promptText = promptText;
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'Page.handleJavaScriptDialog', params);
+  } catch (err) {
+    send({ id: msg.id, ok: false,
+           error: String((err && err.message) || err) });
+    return;
+  }
+  pendingDialog = null;   // Page.javascriptDialogClosed also clears it
+  send({
+    id: msg.id, ok: true,
+    value: {
+      success: true,
+      dialog: {
+        type: dialog.type,
+        message: dialog.message,
+        defaultPrompt: dialog.defaultPrompt,
+      },
+      accept,
+      promptText,
+    },
+  });
+}
+
+// "drop": drag local files (name/mime/base64, supplied by the daemon which
+// read them from disk) onto the target drop zone. See dropExpression.
+async function handleDrop(msg) {
+  if (typeof msg.selector !== 'string' || !msg.selector.trim()) {
+    throw new Error('drop needs a selector (the drop-zone element)');
+  }
+  const files = Array.isArray(msg.files) ? msg.files : [];
+  if (!files.length) {
+    throw new Error('drop needs files:[{name,mime,data(base64)}] — files are read by the daemon');
+  }
+  const tabId = await targetTabId(msg);
+  const path = resolveElement(tabId, msg.selector);
+  const tab = await chrome.tabs.get(tabId);
+  const r = await evaluateOnTab(tab, dropExpression(path, files));
+  if (!r.ok) { send({ id: msg.id, ok: false, error: r.error }); return; }
+  const v = r.value || {};
+  if (v.error) { send({ id: msg.id, ok: false, error: v.error }); return; }
+  send({ id: msg.id, ok: true, value: v });
+}
+
+// "resize_page": set the page viewport via Emulation.setDeviceMetricsOverride
+// (deviceScaleFactor 0 keeps the natural DPR). No reset action: call again
+// with the real size to restore, or reload the page.
+async function handleResizePage(msg) {
+  if (!Number.isInteger(msg.width) || !Number.isInteger(msg.height) ||
+      msg.width <= 0 || msg.height <= 0) {
+    throw new Error('resize_page needs positive integer width and height');
+  }
+  const tabId = await targetTabId(msg);
+  await chrome.tabs.get(tabId);
+  await cdpSend(tabId, 'Emulation.setDeviceMetricsOverride', {
+    width: msg.width, height: msg.height, deviceScaleFactor: 0, mobile: false,
+  });
+  send({ id: msg.id, ok: true,
+         value: { success: true, width: msg.width, height: msg.height } });
+}
+
+// "list_network_requests" / "get_network_request" / "list_console_messages":
+// read the CDP event collectors above (current session's tab, newest first).
+function eventLimit(msg) {
+  return (Number.isInteger(msg.limit) && msg.limit > 0)
+    ? Math.min(msg.limit, EVENT_CAP) : EVENT_CAP;
+}
+
+async function handleListNetworkRequests(msg) {
+  const requests = netEvents.slice(-eventLimit(msg)).reverse();
+  send({ id: msg.id, ok: true, value: { requests } });
+}
+
+async function handleGetNetworkRequest(msg) {
+  const rid = (typeof msg.requestId === 'string' && msg.requestId)
+    ? msg.requestId : null;
+  if (!rid) {
+    throw new Error("get_network_request needs 'requestId' (string) — see list_network_requests");
+  }
+  const rec = netEvents.find((e) => e.requestId === rid) || null;
+  send({ id: msg.id, ok: true, value: { found: !!rec, request: rec } });
+}
+
+async function handleListConsoleMessages(msg) {
+  const messages = consoleEvents.slice(-eventLimit(msg)).reverse();
+  send({ id: msg.id, ok: true, value: { messages } });
 }
 
 // ---------------- probe (diagnostic JS-injection path matrix) -------------

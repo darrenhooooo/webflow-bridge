@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>mini</title></head>
+<body>
+<div id="a">A</div>
+<button id="b">B</button>
+<script>
+  window.__mini = { ran: true, bFound: !!document.getElementById('b'), kids: document.body.children.length };
+  const w = document.createElement('div');
+  w.id = 'made';
+  document.body.appendChild(w);
+</script>
+</body>
+</html>
