@@ -2,20 +2,54 @@
 
 **[English](README.md) | [中文](README.zh-CN.md)**
 
-> 免费、本地的浏览器自动化桥，前身 **Rhino Bridge**。
+> 免费、本地的浏览器自动化桥 —— 驱动你**真实、已登录**的 Chrome 或 Edge。
 > 与 **Kimi WebBridge** 协议兼容的替代品（无云、无账号）。
 
-你现有的发布脚本（或任何本地自动化）继续向
-`http://127.0.0.1:10086/command` POST **无需改动**；Webflow Bridge 在你真实的
-Chrome 标签页里执行 JS，而不是 Kimi 的云端浏览器。
+**许可证:** MIT。**与 Kimi WebBridge 无关联。**
 
-**许可证:** MIT。
-
-**与 Kimi WebBridge 无关联。**
-
-**支持:** macOS 与 Windows 上的 Chrome 与 Microsoft Edge（Chromium MV3 —
+**支持:** macOS 与 Windows 上的 Chrome 与 Microsoft Edge（Chromium MV3 ——
 两浏览器 chrome.debugger API 完全一致）。不支持: Firefox/Safari（没有
 chrome.debugger 等价物）。
+
+---
+
+## 它能做什么
+
+Webflow Bridge 让脚本驱动**你已经打开的那个浏览器标签页** —— 就是你已经
+登录的那个。不需要另开自动化浏览器、不用复制 cookie、不上云。你现有的发布
+脚本继续向 `http://127.0.0.1:10086/command` POST **无需改动**；Webflow Bridge
+在你真实的 Chrome 标签页里执行 JS，而不是 Kimi 的云端浏览器。
+
+## 功能特点
+
+| | |
+|---|---|
+| 🖥️ **真实浏览器、真实会话** | 运行在你活着的标签页上 —— 登录态、cookie、页面全局变量都在。没有需要同步的隐形浏览器。 |
+| 🔌 **与 Kimi WebBridge 兼容** | 同样的 `POST /command` 协议。为 Kimi WebBridge 写的 agent skill 可以 1:1 映射。 |
+| 🎯 **30+ 动作** | 点击、输入、填表、拖放文件、截图、存 PDF、读页面、切标签、看网络流量和控制台日志，等等。 |
+| 🪟 **JS 弹窗自动处理** | alert/confirm/prompt 不再卡住你的自动化 —— 程序化地确定、取消或输入答案。 |
+| 📎 **文件上传不弹系统框** | 点上传按钮、交给它一个本地文件路径 —— 系统"打开文件"窗口根本不会出现。 |
+| 🔓 **免疫页面 CSP** | 走 debugger 通道执行，即使在 x.com 这类严格站点也能工作。 |
+| 🔒 **设计上保护隐私** | 一切都在你的机器上。无云、无账号、数据不出设备。 |
+| 🧩 **一个扩展、两个浏览器** | 同一份 `extension/` 目录在 Chrome 和 Edge 都能加载。 |
+
+## 典型用法
+
+- **发布自动化** —— 用你的真实账号发 X / LinkedIn / Facebook / 博客，跟你手动发一模一样。
+- **采集与监控** —— 读需要登录的页面、翻页点击、看 XHR 流量。
+- **测试** —— 在真实浏览器会话上跑端到端流程（开不开 DevTools 都行）。
+- **RPA 粘合剂** —— 任何"希望有个脚本能帮我点一下"的、纯 HTTP 搞不定的网站任务。
+
+它一次驱动一个标签页，绝不抢你的鼠标和焦点 —— 它干活的同时你可以正常用
+其他标签页、其他浏览器或任何别的软件。
+
+---
+
+## 架构一览
+
+三个本地组件：你的脚本（或 AI agent）向一个小型 Python daemon POST 命令，
+daemon 通过本地 WebSocket 转发给扩展，扩展再经 Chrome 的 debugger 通道在你
+真实的标签页里执行。
 
 ```
 ┌──────────────────────────┐   POST /command   ┌──────────────────────────────┐

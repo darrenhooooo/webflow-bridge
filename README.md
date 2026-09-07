@@ -2,18 +2,49 @@
 
 **[English](README.md) | [中文](README.zh-CN.md)**
 
-> A free, local browser-automation bridge, formerly **Rhino Bridge**.
+> A free, local browser-automation bridge for your real, already-logged-in Chrome or Edge.
 > Protocol-compatible **Kimi WebBridge** replacement (no cloud, no accounts).
 
-Your existing publish scripts (or any local automation) keep POSTing to
-`http://127.0.0.1:10086/command` **unchanged**; Webflow Bridge executes the JS in
-your real Chrome tab instead of Kimi's cloud browser.
-
-**License:** MIT.
-
-**Not affiliated with Kimi WebBridge.**
+**License:** MIT. **Not affiliated with Kimi WebBridge.**
 
 **Supported:** Chrome & Microsoft Edge on macOS and Windows (Chromium MV3 — identical chrome.debugger API). Not supported: Firefox/Safari (no chrome.debugger equivalent).
+
+---
+
+## What it does
+
+Webflow Bridge lets scripts drive **the browser tab you already have open** — the one where you are already logged in. No separate automation browser, no copied cookies, no cloud. Your existing publish scripts keep POSTing to `http://127.0.0.1:10086/command` **unchanged**; Webflow Bridge executes the JS in your real Chrome tab instead of Kimi's cloud browser.
+
+## Features
+
+| | |
+|---|---|
+| 🖥️ **Real browser, real session** | Runs on your live tab — logged-in state, cookies, and page globals all there. No phantom browser to keep in sync. |
+| 🔌 **Kimi WebBridge compatible** | Same `POST /command` protocol. Agent skills written for Kimi's WebBridge map 1:1. |
+| 🎯 **30+ actions** | Click, type, fill forms, drag-drop files, screenshot, save PDF, read the page, switch tabs, watch network traffic and console logs, and more. |
+| 🪟 **JS dialogs handled** | alert/confirm/prompt don't stall your automation — accept, dismiss, or answer them programmatically. |
+| 📎 **File uploads, no OS dialog** | Click an upload button and hand it a local file path — the system "Open File" window never appears. |
+| 🔓 **CSP-immune** | Runs through the debugger channel, so it works even on strict sites like x.com. |
+| 🔒 **Private by design** | Everything stays on your machine. No cloud, no accounts, no data leaves the device. |
+| 🧩 **One extension, two browsers** | The same `extension/` folder loads in Chrome and Edge. |
+
+## Typical uses
+
+- **Publish automation** — post to X / LinkedIn / Facebook / blogs with your real accounts, exactly as you would by hand.
+- **Scraping & monitoring** — read pages that need login, click through pagination, watch XHR traffic.
+- **Testing** — end-to-end flows against a real browser session (with or without DevTools open).
+- **RPA glue** — any "I wish a script could click this for me" task on sites that fight plain HTTP.
+
+It drives one tab at a time and never steals your cursor or focus — you can keep using other tabs, other browsers, or any other app while it works.
+
+---
+
+## How it fits together
+
+Three local pieces: your script (or an AI agent) POSTs commands to a small
+Python daemon, the daemon relays them over a local WebSocket to the extension,
+and the extension executes them in your real tab through Chrome's debugger
+channel.
 
 ```
 ┌──────────────────────────┐   POST /command   ┌──────────────────────────────┐
