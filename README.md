@@ -2,10 +2,9 @@
 
 **[English](README.md) | [中文](README.zh-CN.md)**
 
-> A free, local browser-automation bridge for your real, already-logged-in Chrome or Edge.
-> Protocol-compatible **Kimi WebBridge** replacement (no cloud, no accounts).
+> A free, local browser-automation bridge for your real, already-logged-in Chrome or Edge. No cloud, no accounts.
 
-**License:** MIT. **Not affiliated with Kimi WebBridge.**
+**License:** MIT.
 
 **Supported:** Chrome & Microsoft Edge on macOS and Windows (Chromium MV3 — identical chrome.debugger API). Not supported: Firefox/Safari (no chrome.debugger equivalent).
 
@@ -13,14 +12,14 @@
 
 ## What it does
 
-Webflow Bridge lets scripts drive **the browser tab you already have open** — the one where you are already logged in. No separate automation browser, no copied cookies, no cloud. Your existing publish scripts keep POSTing to `http://127.0.0.1:10086/command` **unchanged**; Webflow Bridge executes the JS in your real Chrome tab instead of Kimi's cloud browser.
+Webflow Bridge lets scripts drive **the browser tab you already have open** — the one where you are already logged in. No separate automation browser, no copied cookies, no cloud. Your existing publish scripts keep POSTing to `http://127.0.0.1:10086/command` **unchanged**, and Webflow Bridge executes the JS in your real Chrome tab.
 
 ## Features
 
 | | |
 |---|---|
 | 🖥️ **Real browser, real session** | Runs on your live tab — logged-in state, cookies, and page globals all there. No phantom browser to keep in sync. |
-| 🔌 **Kimi WebBridge compatible** | Same `POST /command` protocol. Agent skills written for Kimi's WebBridge map 1:1. |
+| 🔌 **Agent-tool compatible** | Same `POST /command` protocol. Agent skills written for browser bridges map 1:1. |
 | 🎯 **30+ actions** | Click, type, fill forms, drag-drop files, screenshot, save PDF, read the page, switch tabs, watch network traffic and console logs, and more. |
 | 🪟 **JS dialogs handled** | alert/confirm/prompt don't stall your automation — accept, dismiss, or answer them programmatically. |
 | 📎 **File uploads, no OS dialog** | Click an upload button and hand it a local file path — the system "Open File" window never appears. |
@@ -81,8 +80,8 @@ channel.
   channel). Because that session is a full DevTools connection, the extension
   also exposes the **entire CDP surface** (`Input.*`, `Page.*`, `DOM.*`, `Network.*`, ...) through a generic
   `cdp` passthrough action — scripts can drive every browser capability, not
-  just evaluation. On top of it the worker implements the **official Kimi
-  WebBridge agent-tool surface** — find_tab/snapshot/click/fill/screenshot/
+  just evaluation. On top of it the worker implements the **standard
+  browser-bridge agent-tool surface** — find_tab/snapshot/click/fill/screenshot/
   upload/save_as_pdf/mouse_click/send_key/type_text and a navigate that can
   open & title new tabs (action table below). **`content.js` was removed** —
   see "How the code runs" for why.
@@ -189,7 +188,7 @@ uv run --python 3.11 daemon/smoke.py
 uv run --python 3.11 daemon/smoke.py --navigate=https://example.com
 ```
 
-## Protocol contract (identical to Kimi WebBridge)
+## Protocol contract
 
 `POST /command` with a JSON body:
 
@@ -208,14 +207,14 @@ uv run --python 3.11 daemon/smoke.py --navigate=https://example.com
 | `503 {"error":"extension not connected"}` | no extension WebSocket — start Chrome with the extension loaded |
 
 Beyond `evaluate`, the daemon forwards this full browser-driver surface over
-the same pipeline. Action names and args are modeled on the **official Kimi
-WebBridge agent tools** (Kimi's `list_tabs` maps to this bridge's
-pre-existing `tabs_list`), so agent skills written against Kimi's WebBridge
-surface map onto these actions 1:1. `"tabId"` is optional on every action
-that targets an existing tab and defaults to the active tab (use `tabs_list`
-to discover tab ids) — `save_as_pdf` takes no `tabId` (it always prints the
-active tab) and `find_tab` takes no `tabId` (it searches every window and
-never opens a tab):
+the same pipeline. Action names and args use the familiar agent-tool
+conventions for browser bridges (the well-known `list_tabs` maps to this
+bridge's pre-existing `tabs_list`), so agent skills written against a
+`POST /command` browser-bridge surface map onto these actions 1:1. `"tabId"`
+is optional on every action that targets an existing tab and defaults to the
+active tab (use `tabs_list` to discover tab ids) — `save_as_pdf` takes no
+`tabId` (it always prints the active tab) and `find_tab` takes no `tabId`
+(it searches every window and never opens a tab):
 
 | Action | `args` | `data` in the reply |
 |---|---|---|

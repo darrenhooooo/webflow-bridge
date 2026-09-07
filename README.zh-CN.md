@@ -3,9 +3,9 @@
 **[English](README.md) | [中文](README.zh-CN.md)**
 
 > 免费、本地的浏览器自动化桥 —— 驱动你**真实、已登录**的 Chrome 或 Edge。
-> 与 **Kimi WebBridge** 协议兼容的替代品（无云、无账号）。
+> 无云、无账号。
 
-**许可证:** MIT。**与 Kimi WebBridge 无关联。**
+**许可证:** MIT。
 
 **支持:** macOS 与 Windows 上的 Chrome 与 Microsoft Edge（Chromium MV3 ——
 两浏览器 chrome.debugger API 完全一致）。不支持: Firefox/Safari（没有
@@ -18,14 +18,14 @@ chrome.debugger 等价物）。
 Webflow Bridge 让脚本驱动**你已经打开的那个浏览器标签页** —— 就是你已经
 登录的那个。不需要另开自动化浏览器、不用复制 cookie、不上云。你现有的发布
 脚本继续向 `http://127.0.0.1:10086/command` POST **无需改动**；Webflow Bridge
-在你真实的 Chrome 标签页里执行 JS，而不是 Kimi 的云端浏览器。
+在你真实的 Chrome 标签页里执行 JS。
 
 ## 功能特点
 
 | | |
 |---|---|
 | 🖥️ **真实浏览器、真实会话** | 运行在你活着的标签页上 —— 登录态、cookie、页面全局变量都在。没有需要同步的隐形浏览器。 |
-| 🔌 **与 Kimi WebBridge 兼容** | 同样的 `POST /command` 协议。为 Kimi WebBridge 写的 agent skill 可以 1:1 映射。 |
+| 🔌 **Agent 工具兼容** | 同样的 `POST /command` 协议。为浏览器桥写的 agent skill 可以 1:1 映射。 |
 | 🎯 **30+ 动作** | 点击、输入、填表、拖放文件、截图、存 PDF、读页面、切标签、看网络流量和控制台日志，等等。 |
 | 🪟 **JS 弹窗自动处理** | alert/confirm/prompt 不再卡住你的自动化 —— 程序化地确定、取消或输入答案。 |
 | 📎 **文件上传不弹系统框** | 点上传按钮、交给它一个本地文件路径 —— 系统"打开文件"窗口根本不会出现。 |
@@ -83,8 +83,8 @@ daemon 通过本地 WebSocket 转发给扩展，扩展再经 Chrome 的 debugger
   **活动标签页**、通过 CDP `Runtime.evaluate`(DevTools 控制台通道)执行代码片段。
   由于该会话是完整 DevTools 连接,扩展还通过通用 `cdp` 透传动作暴露**整个 CDP
   能力面**(`Input.*`、`Page.*`、`DOM.*`、`Network.*` …) — 脚本可以驱动浏览器的
-  一切能力,而不只是求值。在此之上,worker 实现了**官方 Kimi WebBridge 的
-  agent 工具面** — find_tab/snapshot/click/fill/screenshot/upload/save_as_pdf/
+  一切能力,而不只是求值。在此之上,worker 实现了**标准的浏览器桥 agent
+  工具面** — find_tab/snapshot/click/fill/screenshot/upload/save_as_pdf/
   mouse_click/send_key/type_text,以及能开新标签并命名的 navigate(动作表见下)。
   **`content.js` 已移除** — 原因见「代码在页面里如何运行」。
 - **smoke 测试**: 端到端冒烟测试见 `tools/p0_smoke.py`(16 项全过,需真实浏览器)。
@@ -201,7 +201,7 @@ python3 tools/p0_smoke.py
 # 期望输出: summary: 16/16 passed
 ```
 
-## 协议契约(与 Kimi WebBridge 一致)
+## 协议契约
 
 `POST /command`, JSON body:
 
@@ -220,9 +220,9 @@ python3 tools/p0_smoke.py
 | `503 {"error":"extension not connected"}` | 没有扩展 WebSocket — 请启动带扩展的 Chrome |
 
 除 `evaluate` 外,daemon 通过同一条管道转发完整的浏览器驱动动作面。动作名与
-参数参考**官方 Kimi WebBridge agent 工具**(Kimi 的 `list_tabs` 对应本桥既有的
-`tabs_list`),所以按 Kimi WebBridge 动作面写的 agent skill 可以 1:1 映射。
-所有作用于既有标签页的动作都接受可选 `"tabId"`,缺省为活动标签页(用
+参数沿用浏览器桥 agent 工具的通用惯例(常见的 `list_tabs` 对应本桥既有的
+`tabs_list`),所以按 `POST /command` 浏览器桥动作面写的 agent skill 可以 1:1
+映射。所有作用于既有标签页的动作都接受可选 `"tabId"`,缺省为活动标签页(用
 `tabs_list` 查标签 id);`save_as_pdf` 不接受 `tabId`(永远打印活动标签页),
 `find_tab` 也不接受(它搜索所有窗口且从不新开标签):
 
