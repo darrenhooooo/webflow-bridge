@@ -1,0 +1,14 @@
+[project]
+name = "webflow-bridge-mcp"
+version = "0.1.0"
+description = "MCP server: exposes the local Webflow Bridge browser daemon (http://127.0.0.1:10086) as standard MCP tools over stdio."
+requires-python = ">=3.11"
+# Pin to the 1.x line: mcp 2.x removed mcp.server.fastmcp.FastMCP (renamed
+# MCPServer) and broke the v1 API this server is written against. The task
+# spec requires `from mcp.server.fastmcp import FastMCP`.
+dependencies = ["mcp>=1.2,<2"]
+
+# Virtual project: mcp_server.py is run as a script from the venv; there is no
+# package to build/install. Dependencies are still synced into mcp/.venv.
+[tool.uv]
+package = false

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Webflow Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="head">
+    <h1>Webflow Bridge</h1>
+    <span id="version" class="version">v…</span>
+  </header>
+
+  <div class="status">
+    <span id="dot" class="dot dot-check" aria-hidden="true"></span>
+    <span id="statusText">Daemon: checking…</span>
+  </div>
+
+  <button id="testBtn" type="button">Test on active tab</button>
+  <pre id="result" class="result hidden"></pre>
+
+  <script src="popup.js"></script>
+</body>
+</html>

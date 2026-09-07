@@ -1,0 +1,240 @@
+openapi: 3.0.3
+info:
+  title: Webflow Bridge Command API
+  version: 1.0.0
+  description: >-
+    Local browser-automation bridge — protocol-compatible Kimi WebBridge
+    replacement driven over plain HTTP (zero SDK, any HTTP client works).
+servers:
+  - url: http://127.0.0.1:10086
+    description: >-
+      Local daemon (daemon/rhino_bridge.py); the extension link (WS
+      ws://127.0.0.1:10087) is internal and not part of this API.
+paths:
+  /command:
+    post:
+      operationId: command
+      summary: Dispatch one browser-driver command
+      description: >-
+        The bridge's single endpoint: name an action plus its args, and the
+        command is forwarded to the one connected Chrome/Edge extension
+        (session "default"). Always 200 with an ok or error envelope, except
+        403 (non-localhost Origin header, CSRF guard) and 503 (no extension).
+        Args are free-form (see schemas.Args); no bespoke SDK — this
+        description alone lets curl, n8n, fetch or any generic HTTP client
+        drive the bridge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Command'
+      responses:
+        '200':
+          description: >-
+            Command processed. Two 200 shapes discriminated by "status": ok —
+            {"status":"ok","data":{"value":<json-safe result>}}; error —
+            {"status":"error","error":"<message>"} for argument/action-level
+            failures (missing or invalid args, unknown action, extension
+            failure, timeout).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/OkResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: >-
+            Cross-origin POST blocked — Origin header outside
+            http://127.0.0.1:10086 / http://localhost:10086 / "null". Plain
+            scripts/curl send no Origin header and never hit this.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Http403'
+        '503':
+          description: >-
+            Extension not connected: the daemon has no Chrome/Edge extension
+            WebSocket on :10087 to forward the command to.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Http503'
+
+components:
+  schemas:
+    Action:
+      type: string
+      description: The browser-driver action to run.
+      enum:
+        - evaluate
+        - navigate
+        - cdp
+        - probe
+        - tabs_list
+        - tabs_open
+        - tabs_close
+        - tabs_close_all_but
+        - tabs_activate
+        - find_tab
+        - snapshot
+        - click
+        - fill
+        - screenshot
+        - upload
+        - save_as_pdf
+        - mouse_click
+        - send_key
+        - type_text
+    Args:
+      type: object
+      additionalProperties: true
+      description: >-
+        Free-form per-action arguments (unknown keys ignored). Per-action
+        fields:
+        evaluate           code (string, required) JS to run in the page MAIN
+                           world; tabId (int, optional).
+        navigate           url (string, required, http/https) page to load;
+                           newTab (boolean, optional) opens it in a fresh
+                           active tab; group_title (string, optional, only
+                           used when newTab is true) titles that new tab's
+                           group; tabId (int, optional, ignored when newTab is
+                           true).
+        cdp                method (string, required) any DevTools Protocol
+                           method (Input.insertText, Page.reload, DOM.*, ...);
+                           params (object, optional) CDP method params;
+                           tabId (int, optional).
+        find_tab           url (string, required) matched against open tabs'
+                           URLs (exact, then prefix, then substring;
+                           current-window tabs first); active (boolean,
+                           optional) focuses the matched tab; never opens a
+                           tab.
+        snapshot           max (integer, optional, positive; default 400) caps
+                           the a11y-style node list; tabId (int, optional).
+        click              selector (string, required) CSS selector or a
+                           snapshot "@eN" ref; tabId (int, optional).
+        fill               selector (string, required); value (string,
+                           required) text to enter; mode ("auto" | "value" |
+                           "contenteditable", optional, default "auto");
+                           tabId (int, optional).
+        screenshot         format ("png" | "jpeg", optional, default "png");
+                           quality (integer 0-100, optional, jpeg only);
+                           selector (string, optional) CSS or "@eN" element
+                           clip; fullPage (boolean, optional) whole-page
+                           capture; tabId (int, optional).
+        upload             selector (string, required) CSS selector or "@eN"
+                           for the target <input type="file">; file (string,
+                           required) absolute local path the browser process
+                           reads; tabId (int, optional).
+        save_as_pdf        no args — always prints the ACTIVE tab (no tabId).
+        mouse_click        x (integer, optional); y (integer, optional);
+                           selector (string, optional) CSS or "@eN" — when
+                           given, scrolls into view and wins over x/y; tabId
+                           (int, optional).
+        send_key           key (string, required) Enter/Tab/Escape/Backspace/
+                           Delete/Arrows/Home/End/PageUp/PageDown/Space or
+                           a-z/0-9; modifiers (string[], optional) entries
+                           alt/ctrl/meta/shift; tabId (int, optional).
+        type_text          text (string, required) inserted at the caret via
+                           CDP Input.insertText; selector (string, optional)
+                           CSS or "@eN" focused first; tabId (int, optional).
+        probe              no args — returns the extension per-path diagnostic
+                           matrix.
+        tabs_list          no args — returns one entry per open tab.
+        tabs_open          url (string, required, http/https) opens a new tab
+                           (which becomes active) and returns its id.
+        tabs_close         tabId (int, optional) — close a tab (default:
+                           active).
+        tabs_close_all_but tabId (int, optional) — close every other tab in
+                           that tab's window (default: active).
+        tabs_activate      tabId (int, optional) — focus a tab (default:
+                           active).
+
+        tabId is optional on every action that targets an existing tab
+        (evaluate, navigate, cdp, snapshot, click, fill, screenshot, upload,
+        mouse_click, send_key, type_text, tabs_close, tabs_close_all_but,
+        tabs_activate) and defaults to the extension's active tab. tabs_open
+        (and navigate with newTab: true) makes the new tab active, so an
+        evaluate right after it targets the freshly opened page. find_tab
+        takes no tabId — it searches every window; save_as_pdf takes no
+        tabId — it always prints the active tab.
+    Command:
+      type: object
+      description: The POST /command request body.
+      required:
+        - action
+        - session
+      properties:
+        action:
+          $ref: '#/components/schemas/Action'
+        args:
+          $ref: '#/components/schemas/Args'
+        session:
+          type: string
+          default: default
+          description: Connection slot; only "default" is served (others
+            answer 200 {"status":"error",...}).
+      example:
+        action: evaluate
+        args:
+          code: (() => document.title)()
+        session: default
+    OkResponse:
+      type: object
+      description: Successful command result.
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        data:
+          type: object
+          properties:
+            value:
+              description: >-
+                JSON-safe result (string/number/boolean/array/object/null). By
+                action: evaluate the evaluated value; cdp the raw CDP result;
+                snapshot {url, title, nodes: [{ref, tag, role, name, text,
+                path}, ...]}; click {success, tag, text}; fill {success, tag,
+                mode}; find_tab {success, url, tabId} or {success: false,
+                error}; tabs_list an array of tabs; tabs_open {"id","url"};
+                tabs_close {"closed":<tabId>}; tabs_close_all_but
+                {"closed":<count>}; tabs_activate {"tabId","active":true};
+                probe {tab, paths}; screenshot {base64, mime, width, height};
+                upload {success, file, tag}; save_as_pdf {base64,
+                mime:"application/pdf"}; mouse_click {success, x, y};
+                send_key {success, key}; type_text {success, len}; navigate {}
+                (or {success, tabId, groupId?} when args.newTab is true).
+      required:
+        - status
+        - data
+    ErrorResponse:
+      type: object
+      description: 200-level failure (argument, action or extension error).
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error:
+          type: string
+          description: Human-readable failure reason.
+      required:
+        - status
+        - error
+    Http403:
+      type: object
+      description: CSRF guard rejection (browser-originated cross-origin POST).
+      properties:
+        error:
+          type: string
+          const: cross-origin POST blocked
+      required:
+        - error
+    Http503:
+      type: object
+      description: No extension WebSocket is connected to the daemon.
+      properties:
+        error:
+          type: string
+          const: extension not connected
+      required:
+        - error
