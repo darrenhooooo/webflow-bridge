@@ -1894,12 +1894,13 @@ async function handleDialog(msg) {
   const timeoutMs = (Number.isInteger(msg.timeoutMs) && msg.timeoutMs > 0)
     ? Math.min(msg.timeoutMs, 15000) : 2000;
 
-  // Make sure the debugger session is live and the Page domain is enabled so
-  // javascriptDialogOpening actually reaches us.
+  // Make sure the debugger session is live. (Page.enable is already done on
+  // attach by enableCollectorDomains; re-enabling here is both unnecessary and
+  // deadly while a dialog is pending, since Page.enable needs the page's main
+  // thread to answer and the dialog blocks it — Page.handleJavaScriptDialog is
+  // handled at the browser layer and returns immediately.)
   const attachError = await ensureDebugger(tabId);
   if (attachError) throw new Error(attachError);
-  try { await chrome.debugger.sendCommand({ tabId }, 'Page.enable'); }
-  catch (_) { /* best-effort */ }
 
   const deadline = Date.now() + timeoutMs;
   while (!pendingDialog && Date.now() < deadline) {

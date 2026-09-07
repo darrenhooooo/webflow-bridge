@@ -131,6 +131,7 @@ import os
 import socket
 import struct
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HTTP_HOST = "127.0.0.1"
@@ -148,6 +149,7 @@ ALLOWED_ORIGINS = {"http://127.0.0.1:10086", "http://localhost:10086", "null"}
 EVAL_TIMEOUT = 120          # seconds an HTTP caller waits for the extension
 WS_ACCEPT_KEY = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"   # RFC 6455 GUID
 MAX_FRAME = 64 << 20        # sanity cap for a single WS message (64 MiB)
+KEEPALIVE_INTERVAL = 15     # daemon->extension WS ping period (MV3 SW keepalive)
 
 log = logging.getLogger("rhino-bridge")
 
@@ -355,6 +357,28 @@ class Bridge:
                 sock.sendall(frame)
             except OSError as exc:
                 raise ExtensionNotConnected() from exc
+
+    def ws_keepalive_loop(self) -> None:
+        """Ping the connected extension every KEEPALIVE_INTERVAL seconds.
+
+        Chrome suspends an idle MV3 service worker after ~30 s: its timers
+        freeze and the extension WebSocket can go stale, so HTTP commands
+        time out while the daemon still sees a live TCP connection. Any WS
+        frame the worker receives resets that idle timer, so a periodic RFC
+        6455 ping (opcode 0x9, empty payload) keeps the worker awake and the
+        socket usable. Runs forever; daemon thread, exits with the process.
+        """
+        while True:
+            time.sleep(KEEPALIVE_INTERVAL)
+            with self._lock:
+                sock = self._ws_sock
+                if sock is None:
+                    continue
+                try:
+                    sock.sendall(_build_frame(0x9, b""))
+                except OSError:
+                    # Socket is gone; the frame loop will notice and drop it.
+                    log.warning("keepalive ping failed; extension socket gone")
 
     # -------- HTTP command dispatch ----------------------------------------
 
@@ -797,11 +821,19 @@ class Bridge:
             tab_id, err = self._validated_tab_id(args)
             if err:
                 return err
+            timeout_ms = args.get("timeoutMs")
+            if timeout_ms is not None:
+                if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) \
+                        or timeout_ms <= 0 or timeout_ms > 15000:
+                    return 200, {"status": "error",
+                                 "error": "'args.timeoutMs' must be a positive integer <= 15000"}
             ws_payload = {"id": rid, "action": "handle_dialog"}
             if accept is not None:
                 ws_payload["accept"] = accept
             if prompt_text is not None:
                 ws_payload["promptText"] = prompt_text
+            if timeout_ms is not None:
+                ws_payload["timeoutMs"] = timeout_ms
             if tab_id is not None:
                 ws_payload["tabId"] = tab_id
             ok, res = self._roundtrip(ws_payload)
@@ -1027,6 +1059,8 @@ def main() -> None:
 
     threading.Thread(target=BRIDGE.ws_accept_loop, daemon=True,
                      name="ws-accept").start()
+    threading.Thread(target=BRIDGE.ws_keepalive_loop, daemon=True,
+                     name="ws-keepalive").start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
