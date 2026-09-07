@@ -839,6 +839,29 @@ class Bridge:
             ok, res = self._roundtrip(ws_payload)
             if ok:
                 return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "handle_file_chooser":
+            rid = self._next_request_id()
+            file = args.get("file")
+            if not isinstance(file, str) or not file.strip():
+                return 200, {"status": "error",
+                             "error": "'args.file' (absolute local path string) is required"}
+            tab_id, err = self._validated_tab_id(args)
+            if err:
+                return err
+            timeout_ms = args.get("timeoutMs")
+            if timeout_ms is not None:
+                if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) \
+                        or timeout_ms <= 0 or timeout_ms > 15000:
+                    return 200, {"status": "error",
+                                 "error": "'args.timeoutMs' must be a positive integer <= 15000"}
+            ws_payload = {"id": rid, "action": "handle_file_chooser", "file": file}
+            if timeout_ms is not None:
+                ws_payload["timeoutMs"] = timeout_ms
+            if tab_id is not None:
+                ws_payload["tabId"] = tab_id
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
         elif action == "drop":
             rid = self._next_request_id()
             selector = args.get("selector")

@@ -367,6 +367,45 @@ def main() -> int:
                 pass
     cases.append(("drop local file onto dropzone", c_drop))
 
+    # ---- 10b. file chooser upload --------------------------------------
+    def c_file_chooser_upload():
+        # ensure the fixed local upload file exists (rewrite each run)
+        try:
+            open("/tmp/p0_upload.txt", "w").write("p0-file-upload")
+        except OSError as exc:
+            return False, f"cannot write /tmp/p0_upload.txt: {exc}"
+        # 1. inject a file input if it is not already there
+        ok, v = ok_value(evaluate(
+            "(() => { if (!document.getElementById('fc1')) {"
+            " const i = document.createElement('input');"
+            " i.type = 'file'; i.id = 'fc1'; document.body.appendChild(i); }"
+            " return 'injected'; })()"))
+        if not ok or v != "injected":
+            return False, f"inject #fc1 failed: {v!r}"
+        # 2. click it -> native chooser intercepted (no system dialog)
+        ok, v = ok_value(act("click", {"selector": "#fc1"}))
+        if not ok:
+            return False, f"click #fc1 failed: {v}"
+        # 3. answer the intercepted chooser with the local file
+        ok, v = ok_value(act("handle_file_chooser",
+                             {"file": "/tmp/p0_upload.txt", "timeoutMs": 5000}))
+        if not ok:
+            return False, f"handle_file_chooser failed: {v}"
+        if not (v or {}).get("success"):
+            return False, f"handle_file_chooser not success: {v}"
+        # 4. the input must now hold the file
+        ok, v = ok_value(evaluate(
+            "(() => { const f = document.getElementById('fc1').files;"
+            " return { len: f.length, name: f.length ? f[0].name : '' }; })()"))
+        if not ok:
+            return False, f"read files failed: {v}"
+        if (v or {}).get("len", 0) < 1:
+            return False, f"#fc1.files empty after upload: {v}"
+        if (v or {}).get("name") != "p0_upload.txt":
+            return False, f"file name mismatch: {v}"
+        return True, f"uploaded {v.get('name')} via intercepted chooser"
+    cases.append(("file chooser upload via handle_file_chooser", c_file_chooser_upload))
+
     # ---- 11. resize_page + clear ---------------------------------------
     def c_resize():
         ok, before = ok_value(evaluate("(() => window.innerWidth)()"))

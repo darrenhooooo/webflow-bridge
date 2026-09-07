@@ -73,6 +73,13 @@
 //       absolute path onto the matched <input type="file"> (the BROWSER
 //       process reads the path — no base64 round-trip). value {success:true,
 //       file, tag:"input"}.
+//   * {id, action:"handle_file_chooser", file, timeoutMs?}
+//                                   -> programmatic answer to an intercepted
+//       native file chooser: clicking any file input / custom upload control
+//       fires Page.fileChooserOpened (Page.setInterceptFileChooserDialog
+//       {enabled:true} runs on every attach) instead of the native dialog;
+//       DOM.setFileInputFiles {backendNodeId} then puts a LOCAL absolute
+//       path onto that node. value {success:true, file, mode}.
 //   * {id, action:"save_as_pdf"}   -> Page.printToPDF {printBackground:true}
 //       of the active tab. value {base64, mime:"application/pdf"} — the
 //       CLIENT writes the file.
@@ -146,6 +153,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
                  source.tabId, 'reason:', reason);
     debuggerTabId = null;
     pendingDialog = null;
+    pendingFileChooser = null;
   }
 });
 
@@ -289,6 +297,14 @@ let consoleEvents = [];    // [{type,text,timestamp}]
 // must always resolve it (see handleDialog) or the tab hangs.
 let pendingDialog = null;  // {type,message,defaultPrompt,url,hasBrowserHandler} | null
 
+// File-chooser interception (Page domain). enableCollectorDomains turns on
+// Page.setInterceptFileChooserDialog after every attach, so a file input /
+// custom upload control that would normally pop the NATIVE "open file"
+// dialog instead surfaces as a Page.fileChooserOpened event with the input's
+// backendNodeId — and handle_file_chooser resolves it programmatically via
+// DOM.setFileInputFiles {backendNodeId} (no native UI). Newest opening wins.
+let pendingFileChooser = null;  // {backendNodeId, frameId, mode, openedAt} | null
+
 function ringPush(arr, item) {
   arr.push(item);
   if (arr.length > EVENT_CAP) arr.splice(0, arr.length - EVENT_CAP);
@@ -304,6 +320,14 @@ async function enableCollectorDomains(tabId) {
     try { await chrome.debugger.sendCommand({ tabId }, method); }
     catch (_) { /* collectors are best-effort */ }
   }
+  // Intercept native file-chooser dialogs: any file input (or custom upload
+  // control that opens one) then fires Page.fileChooserOpened instead of
+  // showing the OS dialog (see handleFileChooser). Idempotent; re-sent on
+  // every fresh attach.
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'Page.setInterceptFileChooserDialog',
+                                      { enabled: true });
+  } catch (_) { /* best-effort, same as the collectors */ }
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -373,6 +397,18 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       };
     } else if (method === 'Page.javascriptDialogClosed') {
       pendingDialog = null;
+    } else if (method === 'Page.fileChooserOpened') {
+      // A file input / custom upload control was clicked and Chrome's native
+      // dialog was intercepted (setInterceptFileChooserDialog on attach) — the
+      // page is NOT blocked; record the chooser so handle_file_chooser can
+      // fill it via DOM.setFileInputFiles. Newest opening overwrites (a stale
+      // chooser older than ~10 s is replaced by this one anyway).
+      pendingFileChooser = {
+        backendNodeId: params.backendNodeId,
+        frameId: typeof params.frameId === 'string' ? params.frameId : '',
+        mode: typeof params.mode === 'string' ? params.mode : 'selectSingle',
+        openedAt: Date.now(),
+      };
     }
   } catch (_) { /* a malformed event must never break the session */ }
 });
@@ -494,6 +530,8 @@ async function handleMessage(ev) {
       await handleWaitFor(msg);
     } else if (msg.action === 'handle_dialog') {
       await handleDialog(msg);
+    } else if (msg.action === 'handle_file_chooser') {
+      await handleFileChooser(msg);
     } else if (msg.action === 'drop') {
       await handleDrop(msg);
     } else if (msg.action === 'resize_page') {
@@ -1935,6 +1973,56 @@ async function handleDialog(msg) {
       promptText,
     },
   });
+}
+
+// "handle_file_chooser": programmatically answer a native file chooser that
+// Page.setInterceptFileChooserDialog {enabled:true} (sent on every attach by
+// enableCollectorDomains) intercepted — clicking ANY file input or a custom
+// upload control that opens a chooser fires Page.fileChooserOpened instead of
+// showing the native UI, and we record it in pendingFileChooser. This action
+// waits up to timeoutMs (default 3000) for that event — the caller usually
+// clicks / navigates to the control first — then puts a LOCAL absolute path
+// onto the chooser's input node. The backendNodeId variant of
+// DOM.setFileInputFiles is used (not nodeId — no DOM.getDocument/querySelector
+// round-trip needed; the BROWSER process reads the path, no base64). A CDP
+// failure (e.g. the file path does not exist) is passed through verbatim.
+async function handleFileChooser(msg) {
+  const file = msg.file;
+  if (typeof file !== 'string' || !file.trim()) throw new Error('missing file path');
+  const tabId = await targetTabId(msg);
+  await chrome.tabs.get(tabId);                // fail fast on stale tabIds
+  const timeoutMs = (Number.isInteger(msg.timeoutMs) && msg.timeoutMs > 0)
+    ? Math.min(msg.timeoutMs, 15000) : 3000;
+
+  // Make sure the debugger session is live. (setInterceptFileChooserDialog is
+  // already enabled on attach by enableCollectorDomains; re-sending is
+  // unnecessary.)
+  const attachError = await ensureDebugger(tabId);
+  if (attachError) throw new Error(attachError);
+
+  const deadline = Date.now() + timeoutMs;
+  while (!pendingFileChooser && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const chooser = pendingFileChooser;
+  if (!chooser) {
+    send({ id: msg.id, ok: false,
+           error: `no file chooser is open within ${timeoutMs}ms` });
+    return;
+  }
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'DOM.setFileInputFiles', {
+      files: [file],
+      backendNodeId: chooser.backendNodeId,
+    });
+  } catch (err) {
+    send({ id: msg.id, ok: false,
+           error: String((err && err.message) || err) });
+    return;
+  }
+  pendingFileChooser = null;   // Page.fileChooserOpened is a one-shot event
+  send({ id: msg.id, ok: true,
+         value: { success: true, file, mode: chooser.mode } });
 }
 
 // "drop": drag local files (name/mime/base64, supplied by the daemon which

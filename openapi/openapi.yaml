@@ -82,6 +82,7 @@ components:
         - fill
         - screenshot
         - upload
+        - handle_file_chooser
         - save_as_pdf
         - mouse_click
         - send_key
@@ -126,6 +127,12 @@ components:
                            for the target <input type="file">; file (string,
                            required) absolute local path the browser process
                            reads; tabId (int, optional).
+        handle_file_chooser file (string, required) absolute local path to set
+                           on an intercepted file chooser (native dialog is
+                           suppressed; a file input / custom upload control
+                           must have been clicked first); timeoutMs (integer,
+                           optional, positive, default 3000) max wait for the
+                           chooser to open; tabId (int, optional).
         save_as_pdf        no args — always prints the ACTIVE tab (no tabId).
         mouse_click        x (integer, optional); y (integer, optional);
                            selector (string, optional) CSS or "@eN" — when
@@ -152,8 +159,8 @@ components:
 
         tabId is optional on every action that targets an existing tab
         (evaluate, navigate, cdp, snapshot, click, fill, screenshot, upload,
-        mouse_click, send_key, type_text, tabs_close, tabs_close_all_but,
-        tabs_activate) and defaults to the extension's active tab. tabs_open
+        handle_file_chooser, save_as_pdf, mouse_click, send_key, type_text,
+        tabs_close, tabs_close_all_but, tabs_activate) and defaults to the extension's active tab. tabs_open
         (and navigate with newTab: true) makes the new tab active, so an
         evaluate right after it targets the freshly opened page. find_tab
         takes no tabId — it searches every window; save_as_pdf takes no
