@@ -1,4 +1,4 @@
-# Webflow Bridge HTTP API — zero-SDK driver guide (official-Kimi-WebBridge-compatible tool names)
+# Webflow Bridge HTTP API — zero-SDK driver guide (standard browser-bridge agent-tool names)
 
 **Webflow Bridge Command API v1.0.0** · base URL `http://127.0.0.1:10086`
 · OpenAPI description: [`../openapi/openapi.yaml`](../openapi/openapi.yaml)
@@ -126,12 +126,13 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```
 
 **find_tab / snapshot / click / fill / screenshot / upload / save_as_pdf /
-mouse_click / send_key / type_text** — these carry the official Kimi
-WebBridge **agent-tool names**, so a reference skill written against Kimi's
-WebBridge surface (navigate(url, newTab, group_title) / find_tab / list_tabs /
-snapshot / click / fill / screenshot / upload / save_as_pdf / mouse_click /
-send_key / type_text / evaluate / cdp) maps onto the actions here 1:1 —
-Kimi's `list_tabs` is this bridge's pre-existing `tabs_list`.
+mouse_click / send_key / type_text** — these carry the standard
+browser-bridge **agent-tool names**, so a reference skill written against a
+browser-bridge surface (navigate(url, newTab, group_title) / find_tab /
+list_tabs / snapshot / click / fill / screenshot / upload / save_as_pdf /
+mouse_click / send_key / type_text / evaluate / cdp) maps onto the actions
+here 1:1 — the familiar `list_tabs` is this bridge's pre-existing
+`tabs_list`.
 
 **find_tab** — find an open tab whose URL matches (exact, then prefix, then
 substring; current-window tabs preferred; **never opens a tab**):

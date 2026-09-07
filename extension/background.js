@@ -722,7 +722,7 @@ async function handleTabsCloseAllBut(msg) {
 }
 
 // ---------------- find_tab / snapshot / click / fill -------------
-// Phase-A agent tools with OFFICIAL Kimi WebBridge-compatible names. Every
+// Phase-A agent tools with standard browser-bridge-compatible names. Every
 // page read/write goes through Runtime.evaluate snippets on the managed
 // chrome.debugger session (the same channel the evaluate action uses) — no
 // content scripts, no new permissions. snapshot caches "@eN" -> CSS path so
@@ -1276,7 +1276,7 @@ async function handleFill(msg) {
 }
 
 // ---------------- Phase-B agent tools (screenshot/upload/pdf/input) -------
-// Second batch of official Kimi WebBridge-compatible agent tools. Same
+// Second batch of standard browser-bridge agent tools. Same
 // transport as Phase A: element reads/writes go through evaluate snippets on
 // the shared chrome.debugger session (@eN refs resolve via resolveElement +
 // lastSnapshot); raster/PDF/keyboard/mouse/upload go through direct CDP
@@ -1567,7 +1567,8 @@ async function handleMouseClick(msg) {
 // send_key key table: named keys + single characters. CDP
 // Input.dispatchKeyEvent wants {key, code, windowsVirtualKeyCode}; single
 // chars additionally carry `char` so the press can TYPE the character into a
-// focused control. Windows VK codes follow the Kimi spec (Enter 13, Tab 9, ...
+// focused control. Windows VK codes follow the standard browser-bridge
+// convention (Enter 13, Tab 9, ...
 // ArrowUp 38, Space 32); letters use the upper-case char code, digits their
 // own.
 const NAMED_KEY_SPECS = {

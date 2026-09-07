@@ -13,7 +13,7 @@ uploading.
 ## Summary (≤ 132 chars)
 
 ```
-Run JS and CDP commands on your active tab from a local daemon. Kimi WebBridge-compatible browser-automation bridge — all local.
+Run JS and CDP commands on your active tab from a local daemon. Browser-automation bridge — 100% local, no cloud.
 ```
 
 (108 chars — copy as-is.)
@@ -27,8 +27,8 @@ Run JS and CDP commands on your active tab from a local daemon. Kimi WebBridge-c
 ## Full description (~120–250 words, Markdown allowed)
 
 > **What it is.** Webflow Bridge is a local browser-automation bridge. Your
-> scripts — or any local automation — post **Kimi WebBridge-compatible**
-> commands to `http://127.0.0.1:10086`, and Webflow Bridge runs them in your
+> scripts — or any local automation — post commands to
+> `http://127.0.0.1:10086`, and Webflow Bridge runs them in your
 > real Chrome tab. It attaches to the **active tab** via `chrome.debugger` and
 > executes through CDP `Runtime.evaluate` — the exact channel Chrome's DevTools
 > console uses. That means arbitrary JavaScript you provide runs in the page's
@@ -54,7 +54,7 @@ Run JS and CDP commands on your active tab from a local daemon. Kimi WebBridge-c
 >    ```
 >
 > **Open source.** MIT-licensed at <https://github.com/<your-org>/webflow-bridge>
-> (placeholder — fill in before upload). Not affiliated with Kimi WebBridge.
+> (placeholder — fill in before upload).
 >
 > **Support / feedback.** File an issue at the GitHub repo above, or contact
 > <you@example.com> (placeholder).

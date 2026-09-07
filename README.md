@@ -359,7 +359,7 @@ Details:
 | evaluate fails with "Another debugger is already attached" | DevTools (or another CDP client) is open on that tab. Close the DevTools window on that tab and retry. |
 | evaluate error mentions "Content Security Policy" | Stale build from the content-script era (the old MAIN-world `new Function` / content-script eval paths are CSP-blocked). Fully reload "Webflow Bridge" at `chrome://extensions` (or `edge://extensions`) — the current build evaluates through `chrome.debugger`, which neither page CSP nor the extension can block. |
 | Timeout after 120 s | Active tab busy (modal dialog / blocked script) or the page code never finished. CDP awaits Promise completion values, so a hung async snippet lands here. |
-| Port already in use | Another web-flow / WebBridge instance is running — stop it first. |
+| Port already in use | Another Webflow Bridge instance is running — stop it first. |
 | Extension lost connection after daemon restart | Automatic: reconnects with backoff up to 30 s. The debugger session is detached on WS close and re-attached on the next evaluate — no action needed. |
 
 ## Constraints honoured

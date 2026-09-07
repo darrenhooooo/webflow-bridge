@@ -387,7 +387,7 @@ CDP 会话只作用于它 attach 的那个标签, 并在同标签导航后存活
 | evaluate 失败报 "Another debugger is already attached" | 该标签开着 DevTools(或另一个 CDP 客户端)。关掉那个标签的 DevTools 再试。 |
 | evaluate 报错提到 "Content Security Policy" | content-script 时代的陈旧构建(旧的 MAIN-world `new Function` / content-script eval 路径被 CSP 拦截)。在 `chrome://extensions`(或 `edge://extensions`)完整重载「Webflow Bridge」— 当前构建走 `chrome.debugger`, 页面 CSP 和扩展 CSP 都拦不住。 |
 | 120 s 超时 | 活动标签忙(模态对话框/脚本阻塞)或页面代码没跑完。CDP 会 await Promise 完成值, 挂起的 async 片段会落到这里。 |
-| 端口被占用 | 另一个 web-flow / WebBridge 实例在跑 — 先停掉它。 |
+| 端口被占用 | 另一个 Webflow Bridge 实例在跑 — 先停掉它。 |
 | 扩展在 daemon 重启后掉线 | 自动恢复: 指数退避重连(上限 30 s)。WS 关闭时 debugger 会话 detach, 下次 evaluate 时 re-attach — 无需操作。 |
 | dialog 弹了但 handle_dialog 报 no dialog | 确认扩展是最新构建并已 reload(`chrome://extensions` 点刷新); 老构建在 attach 时没开 Page 域。 |
 | 点上传按钮弹系统"打开文件"框 | 确认扩展已 reload(含 `setInterceptFileChooserDialog` 的版本); 然后 click 触发后调 `handle_file_chooser`。 |

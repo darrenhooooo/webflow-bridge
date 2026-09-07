@@ -3,7 +3,7 @@ info:
   title: Webflow Bridge Command API
   version: 1.0.0
   description: >-
-    Local browser-automation bridge — protocol-compatible Kimi WebBridge
+    Local browser-automation bridge — protocol-compatible agent-tool surface for browser bridges
     replacement driven over plain HTTP (zero SDK, any HTTP client works).
 servers:
   - url: http://127.0.0.1:10086

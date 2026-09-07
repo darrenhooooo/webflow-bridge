@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-web-flow daemon — protocol-compatible Kimi WebBridge replacement.
+web-flow daemon — local browser-automation bridge.
 
 Two stdlib-only servers:
 
@@ -43,7 +43,7 @@ their args as flat WS fields:
                     {"closed": <count>}.
   * "tabs_activate" {"tabId"?} — data.value {"tabId": <n>, "active": true}
 
-Agent-tool actions (OFFICIAL Kimi WebBridge-compatible tool names — the
+Agent-tool actions (standard browser-bridge-compatible tool names — the
 Phase-A gap) are forwarded the same way, with their args as flat WS fields:
 
   * "find_tab"     {"url", "active"?} — locate an open tab whose URL matches
@@ -1061,7 +1061,7 @@ def main() -> None:
         httpd = ThreadingHTTPServer((HTTP_HOST, HTTP_PORT), CommandHandler)
     except OSError as exc:
         print(f"[web-flow] FATAL: cannot bind ports — {exc}\n"
-              "  Is another web-flow / WebBridge already running?")
+              "  Is another Webflow Bridge already running?")
         raise SystemExit(1) from exc
     httpd.daemon_threads = True
 
