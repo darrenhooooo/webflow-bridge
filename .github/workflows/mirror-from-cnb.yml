@@ -1,0 +1,32 @@
+name: Mirror from CNB
+
+# 定时把 CNB 主仓 (yctech.com-darren/webflow-bridge) 同步到本 GitHub 仓库。
+# CNB 仓库公开可匿名拉取，无需任何 Secrets。
+# 本地日常推 CNB 即可，GitHub 侧由本 workflow 自动跟上（<=30min 延迟）。
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 每 30 分钟
+  workflow_dispatch:          # 也支持手动触发 (Actions 页 Run workflow)
+
+permissions:
+  contents: write             # 允许 push 到本仓库
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitHub repo (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch CNB main
+        run: |
+          git remote add cnb https://cnb.cool/yctech.com-darren/webflow-bridge.git
+          git fetch cnb main --force
+
+      - name: Mirror CNB main -> origin main
+        run: |
+          git checkout -B main cnb/main
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" main --force
