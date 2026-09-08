@@ -5,14 +5,19 @@
   "description": "Webflow Bridge Firefox 版的本机控制面板：显示 daemon/浏览器状态、执行 JS、列出标签页。仅连接本机 127.0.0.1:10096，不收集任何数据。",
   "browser_specific_settings": {
     "gecko": {
-      "id": "webflow-bridge-ff@webflow.local",
+      "id": "webflow-bridge@yctech.com.cn",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },
-  "permissions": ["storage", "http://127.0.0.1/*"],
+  "permissions": [
+    "storage",
+    "http://127.0.0.1/*"
+  ],
   "content_security_policy": "script-src 'self'; object-src 'self'; connect-src http://127.0.0.1:*",
   "browser_action": {
     "default_title": "Webflow Bridge 控制面板",
