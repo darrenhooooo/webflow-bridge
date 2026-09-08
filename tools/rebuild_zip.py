@@ -1,6 +1,6 @@
 import zipfile, os
 src = 'extension'
-out = 'dist/webflow-bridge-0.3.0.zip'
+out = 'dist/webflow-bridge-0.4.0.zip'
 os.makedirs('dist', exist_ok=True)
 if os.path.exists(out):
     os.remove(out)

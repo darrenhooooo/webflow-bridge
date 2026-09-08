@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.4.0 — 2026-09-08
+
+Firefox 版 P3 完成（MINOR bump，见 docs/VERSIONING.md）。
+
+### 新增
+- ff/ff-launch.sh：macOS 版启动器（真实 profile 规则 1/2/3、幂等、binary 三级
+  定位、lsof/nc 探测；bash -n PASS + 逻辑 harness 10/10；**待 mac 实测**清单 8 项
+  见脚本头注释）。.gitattributes 强制 *.sh eol=lf。
+- 文档分版：ff/README.md 完整版（全动作矩阵 P0/P1/P2 + 2 项明确不支持、双平台
+  安装、已知语义/边界）；README.md / README.zh-CN.md 支持范围更新（Firefox
+  独立版）；docs/CROSS_PLATFORM.md 加 Firefox edition 矩阵；docs/FIREFOX_
+  SUPPORT_PLAN.md 阶段状态标注。
+
 ## v0.3.0 — 2026-09-08
 
 Firefox 版 P2 能力面完成（MINOR bump，见 docs/VERSIONING.md）。
