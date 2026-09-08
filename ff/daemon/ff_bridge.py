@@ -21,7 +21,7 @@ semantics baked in:
   - single resident BiDi session; every action first refreshes the top-level
     context list with browsingContext.getTree
   - actions: evaluate / navigate / tabs_list / tabs_open / tabs_close /
-    tabs_activate / find_tab / probe
+    tabs_close_all_but / tabs_activate / find_tab / probe
   - cdp is NOT supported on this backend and answers an explicit error
   - unknown actions answer {"status":"error","error":"unknown action: <x>"}
 
@@ -1334,7 +1334,8 @@ class Bridge:
         if action == "probe":
             return 200, {"status": "ok", "data": {"value": self._probe()}}
         if action not in {"evaluate", "navigate", "tabs_list", "tabs_open",
-                          "tabs_close", "tabs_activate", "find_tab",
+                          "tabs_close", "tabs_close_all_but", "tabs_activate",
+                          "find_tab",
                           "click", "fill", "type_text", "send_key",
                           "mouse_click", "screenshot", "save_as_pdf",
                           "upload", "snapshot", "handle_dialog",
@@ -1439,6 +1440,31 @@ class Bridge:
             self.ff.command("browsingContext.close", {"context": ctx})
             return 200, {"status": "ok", "data": {
                 "value": {"closed": ctx}}}
+
+        if action == "tabs_close_all_but":
+            # Chrome parity (extension/background.js handleTabsCloseAllBut):
+            # default target = active tab (Chrome) / active-or-first
+            # top-level context here; then close EVERY OTHER tab in the same
+            # window.  BiDi exposes no window grouping, so the whole
+            # top-level tree is the close scope -- which is also exactly the
+            # default window on a normal Firefox session.  A stale/missing
+            # target must NOT silently degrade to closing everything:
+            # Chrome tabs.get throws on a gone tabId, so an explicit context
+            # that is not in the current tree is an error here too.
+            ctx = self._resolve_context(args, tops)
+            if not any(c.get("context") == ctx for c in tops):
+                raise FfActionError(
+                    "", f"target tab {ctx!r} not found among "
+                    f"{len(tops)} top-level contexts")
+            closed = 0
+            for c in tops:
+                if c.get("context") == ctx:
+                    continue
+                self.ff.command(
+                    "browsingContext.close", {"context": c["context"]})
+                closed += 1
+            return 200, {"status": "ok", "data": {
+                "value": {"closed": closed}}}
 
         if action == "tabs_activate":
             ctx = self._resolve_context(args, tops)
