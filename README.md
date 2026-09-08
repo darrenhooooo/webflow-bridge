@@ -6,7 +6,7 @@
 
 **License:** MIT.
 
-**Supported:** Chrome & Microsoft Edge on macOS and Windows (Chromium MV3 — identical chrome.debugger API). Not supported: Firefox/Safari (no chrome.debugger equivalent).
+**Supported:** Chrome & Microsoft Edge on macOS and Windows (Chromium MV3 — identical chrome.debugger API). Firefox has a separate Firefox edition (WebDriver BiDi) - see [ff/README.md](ff/README.md). Not supported: Safari.
 
 ---
 

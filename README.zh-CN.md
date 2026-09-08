@@ -8,8 +8,8 @@
 **许可证:** MIT。
 
 **支持:** macOS 与 Windows 上的 Chrome 与 Microsoft Edge（Chromium MV3 ——
-两浏览器 chrome.debugger API 完全一致）。不支持: Firefox/Safari（没有
-chrome.debugger 等价物）。
+两浏览器 chrome.debugger API 完全一致）。**Firefox:** 独立 Firefox 版（WebDriver BiDi 架构）——
+见 [ff/README.md](ff/README.md)。不支持: Safari。
 
 ---
 

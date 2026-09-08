@@ -1,4 +1,4 @@
-# Webflow Bridge for Firefox — 独立版产品方案（2026-09-08 定稿待审）
+# Webflow Bridge for Firefox — 独立版产品方案（2026-09-08 定稿；实施状态见 §4，09-08 P0/P1/P2 已完成并发布 v0.1.1/v0.2.0/v0.3.0）
 
 ## 0. 产品定位
 
@@ -75,12 +75,12 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 
 ## 4. 分阶段实施（pi 执行口径）
 
-| 阶段 | 内容 | 验证标准 |
+| 阶段 | 内容 | 验证标准 | 状态 |
 |---|---|---|
-| P0 | ff daemon 骨架：HTTP :10096 + token 鉴权 + BiDi 连接（session.new/getTree/navigate/evaluate/tabs_list/tabs_open/close/probe）+ cdp 明确报错 + ff-launch(win) | 启动器开真实 profile Firefox，`evaluate document.title` 返回真实页面；Chrome 版 daemon 不受影响可并存 |
-| P1 | 输入面：click/fill/type_text/send_key/mouse_click/screenshot/save_as_pdf/find_tab/tabs_activate + upload(若 setFiles 可行) | 对照 Chrome p0_smoke 用例集在 Firefox 跑通核心闭环 |
-| P2 | snapshot DOM→a11y 生成器 + network/console 事件 + handle_dialog/file_chooser + humanize | snapshot/click 循环可用；事件类动作有输出 |
-| P3 | companion 附加组件（AMO 就绪：manifest/图标/隐私/源码可审）+ ff-launch(mac) + 文档（README 双语/HTTP_API/openapi 分版）+ 双 daemon 回归 | AMO 自检清单齐；文档与实测一致；Chrome 44/44 零回退 |
+| P0 | ff daemon 骨架：HTTP :10096 + token 鉴权 + BiDi 连接（session.new/getTree/navigate/evaluate/tabs_list/tabs_open/close/probe）+ cdp 明确报错 + ff-launch(win) | 启动器开真实 profile Firefox，`evaluate document.title` 返回真实页面；Chrome 版 daemon 不受影响可并存 | ✅ v0.1.1 (09-08) |
+| P1 | 输入面：click/fill/type_text/send_key/mouse_click/screenshot/save_as_pdf/find_tab/tabs_activate + upload(若 setFiles 可行) | 对照 Chrome p0_smoke 用例集在 Firefox 跑通核心闭环 | ✅ v0.2.0 (09-08) |
+| P2 | snapshot DOM→a11y 生成器 + network/console 事件 + handle_dialog/file_chooser + humanize | snapshot/click 循环可用；事件类动作有输出 | ✅ v0.3.0 (09-08)；file_chooser 实测 Firefox BiDi 无拦截机制→明确报错引导 upload |
+| P3 | companion 附加组件（AMO 就绪：manifest/图标/隐私/源码可审）+ ff-launch(mac) + 文档（README 双语/HTTP_API/openapi 分版）+ 双 daemon 回归 | AMO 自检清单齐；文档与实测一致；Chrome 44/44 零回退 | 🔄 companion 已提前完成 (v0.1.1)；mac 启动器 + 文档分版 09-08 进行中 |
 | P4 | （可选）AMO 提交 + 上架运维 | 上架通过 |
 
 预估：P0 1天；P1 1-2天；P2 2-3天；P3 1天。合计 5-7 人日。

@@ -2,12 +2,21 @@
 
 Platform-neutral by design: pure-Python stdlib daemon + Chromium MV3 extension — the `chrome.debugger` API is identical on Chrome and Edge, macOS and Windows. One repo, one `extension/` folder/zip, two browsers.
 
+Firefox is a **separate edition** (`ff/` directory, WebDriver BiDi backend, port 10096) — same `POST /command` protocol, different architecture. See [ff/README.md](../ff/README.md) for its platform status.
+
 ## Platform matrix
 
 | OS | Chrome | Microsoft Edge |
 |---|---|---|
 | macOS | expected-identical | expected-identical |
 | Windows 11 | **verified 09-04** | expected-identical |
+
+### Firefox edition (`ff/`)
+
+| OS | Status |
+|---|---|
+| Windows 11 | **verified 09-08**: P0+P1+P2 smoke green (Firefox 155) |
+| macOS | launcher `ff/ff-launch.sh` ready 09-08; **pending on-mac verification** |
 
 Verified on Windows 11 + Chrome 152 (2025-09-04); others expected-identical — checklist below.
 
