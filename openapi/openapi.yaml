@@ -43,12 +43,26 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/OkResponse'
                   - $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: >-
+            Unauthorized — missing or invalid Authorization: Bearer token
+            (shared-secret auth; token in ~/.webflow_bridge/token).
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    const: 'unauthorized: missing or invalid bearer token'
         '403':
           description: >-
             Cross-origin POST blocked — Origin header outside
-            http://127.0.0.1:10086 / http://localhost:10086 / "null". Plain
-            scripts/curl send no Origin header and never hit this.
-          content:
+            http://127.0.0.1:10086 / http://localhost:10086 ("null" sandbox/file
+            origins are deliberately rejected). Plain scripts/curl send no
+            Origin header and never hit this after authenticating.
             application/json:
               schema:
                 $ref: '#/components/schemas/Http403'

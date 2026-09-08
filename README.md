@@ -30,7 +30,7 @@ Webflow Bridge lets scripts drive **the browser tab you already have open** — 
 ## Typical uses
 
 - **Publish automation** — post to X / LinkedIn / Facebook / blogs with your real accounts, exactly as you would by hand.
-- **Scraping & monitoring** — read pages that need login, click through pagination, watch XHR traffic.
+- **Scraping & monitoring** — read pages you can already access (your own data / authorized content), click through pagination, watch XHR traffic.
 - **Testing** — end-to-end flows against a real browser session (with or without DevTools open).
 - **RPA glue** — any "I wish a script could click this for me" task on sites that fight plain HTTP.
 
@@ -129,6 +129,12 @@ python3 daemon/webflow_bridge.py
 > real Python 3.11 (e.g. from python.org) — not the Microsoft Store stub
 > (`py -3.11 daemon/webflow_bridge.py` also works there).
 
+The daemon enables shared-secret auth by default: on first start it creates
+`~/.webflow_bridge/token` (random, 0600). Native clients must send it as
+`Authorization: Bearer <token>` on every POST (or export `WBF_TOKEN`); the
+extension bootstraps it automatically from `GET /config`. Start with
+`--allow-no-auth` only as a local migration window — it disables the check.
+
 You should see the startup banner with both listening ports:
 
 ```
@@ -170,6 +176,7 @@ restart the daemon freely.
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"evaluate","args":{"code":"(() => document.title)()"},"session":"default"}'
 ```
 
@@ -243,10 +250,12 @@ extension's debugger session can reach can be fired, e.g.
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"cdp","args":{"method":"Input.insertText","params":{"text":"hi"}},"session":"default"}'
 
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_list","args":{},"session":"default"}'
 ```
 
@@ -260,10 +269,15 @@ every tab in the target tab's window except the target itself.
 Scripts read `response.get("data", {}).get("value")`, so error responses (no
 `data`) behave exactly as before.
 
-Origin guard: any POST whose `Origin` header is not
-`http://127.0.0.1:10086`, `http://localhost:10086`, or `null` is answered
-`403 {"error":"cross-origin POST blocked"}`. Native scripts/curl send no
-`Origin` header and are unaffected; the WebSocket handshake is not guarded.
+Auth & Origin guard: bearer-token auth runs **first** — a POST without a
+valid `Authorization` header gets `401 {"error":"unauthorized..."}`. Then any
+POST whose `Origin` header is not `http://127.0.0.1:10086` or
+`http://localhost:10086` is answered
+`403 {"error":"cross-origin POST blocked"}` (`null` origins — sandboxed
+iframes / file pages — are deliberately rejected; they cannot know the
+token anyway). Native scripts/curl send no `Origin` header and are
+unaffected once they authenticate. The extension WebSocket handshake must
+present `?token=<token>`; a wrong or missing token gets a plain HTTP 403.
 
 ### Internal WebSocket wire format (daemon ↔ extension, :10087)
 

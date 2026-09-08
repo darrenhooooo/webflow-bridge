@@ -31,13 +31,30 @@ from mcp.server.fastmcp import FastMCP
 
 # The MCP server inherits a filtered environment from its host (Hermes strips
 # most vars); WEBFLOW_DAEMON is honoured when present and 127.0.0.1:10086 is
-# the fallback. It needs no secrets — only network to the local daemon.
+# the fallback. The daemon requires the shared bearer token (P0): it is read
+# from $WBF_TOKEN (host may strip it, so the file fallback is primary) or
+# ~/.webflow_bridge/token — no other secrets are needed, only network to the
+# local daemon.
 DAEMON_BASE = os.environ.get("WEBFLOW_DAEMON", "http://127.0.0.1:10086").rstrip("/")
 COMMAND_URL = DAEMON_BASE + "/command"
 SESSION = "default"
 HTTP_TIMEOUT = 125.0        # daemon allows 120 s per action; keep headroom
 HTTP_HOST = "127.0.0.1"     # streamable-HTTP bind address (local tool)
 HTTP_PORT = 8931
+
+
+def _auth_headers() -> dict:
+    """Bearer-token header for the daemon (empty when auth is off)."""
+    token = os.environ.get("WBF_TOKEN")
+    if not token:
+        path = os.environ.get("WBF_TOKEN_FILE") or os.path.join(
+            os.path.expanduser("~"), ".webflow_bridge", "token")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                token = fh.read().strip()
+        except OSError:
+            token = ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 server = FastMCP(
     "Webflow Bridge MCP",
@@ -62,7 +79,8 @@ def _daemon_call(action: str, args: dict[str, Any] | None = None) -> str:
         {"action": action, "args": args or {}, "session": SESSION}
     ).encode("utf-8")
     request = urllib.request.Request(
-        COMMAND_URL, data=body, headers={"Content-Type": "application/json"}
+        COMMAND_URL, data=body,
+        headers={"Content-Type": "application/json", **_auth_headers()}
     )
     try:
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:

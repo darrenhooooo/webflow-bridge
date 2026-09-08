@@ -21,6 +21,18 @@ BASE=http://127.0.0.1:10086/command
 CT='Content-Type: application/json'
 fail=0
 
+# Daemon shared bearer token (P0): $WBF_TOKEN or ~/.webflow_bridge/token.
+# When the daemon runs with --allow-no-auth the header is simply omitted.
+TOKEN="${WBF_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  TOKEN=$(cat "$HOME/.webflow_bridge/token" 2>/dev/null | tr -d '[:space:]' || true)
+fi
+if [ -n "$TOKEN" ]; then
+  AUTH="Authorization: Bearer $TOKEN"
+else
+  AUTH=''
+fi
+
 json_get_id() {
   # input:  JSON body on stdin (single line)
   # output: the first "id": <number> found, else nothing
@@ -50,7 +62,11 @@ extract_tab_id() {
 }
 
 post() { # post <payload> -> body on stdout
-  curl -sS -m 60 -X POST "$BASE" -H "$CT" -d "$1"
+  if [ -n "$AUTH" ]; then
+    curl -sS -m 60 -X POST "$BASE" -H "$CT" -H "$AUTH" -d "$1"
+  else
+    curl -sS -m 60 -X POST "$BASE" -H "$CT" -d "$1"
+  fi
 }
 
 echo "== [1/5] tabs_open https://example.com (own scratch tab)"

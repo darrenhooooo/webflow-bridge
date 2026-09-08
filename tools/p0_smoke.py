@@ -32,12 +32,27 @@ import urllib.request
 ENDPOINT = "http://127.0.0.1:10086/command"
 PAGE = "http://127.0.0.1:8921/p0_test_page.html"
 
+# Daemon shared bearer token (P0): $WBF_TOKEN or ~/.webflow_bridge/token.
+TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".webflow_bridge", "token")
+
+
+def _auth_headers() -> dict:
+    token = os.environ.get("WBF_TOKEN")
+    if not token:
+        path = os.environ.get("WBF_TOKEN_FILE") or TOKEN_FILE
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                token = fh.read().strip()
+        except OSError:
+            token = ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 
 def post(payload: dict):
     req = urllib.request.Request(
         ENDPOINT,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_auth_headers()},
         method="POST",
     )
     try:

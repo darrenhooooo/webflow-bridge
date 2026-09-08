@@ -22,11 +22,29 @@ Prints PASS/FAIL per check and exits non-zero when anything fails.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
 ENDPOINT = "http://127.0.0.1:10086/command"
+
+# The daemon requires the shared bearer token (P0): it is read from
+# $WBF_TOKEN or ~/.webflow_bridge/token (same defaults as the daemon). When
+# the daemon runs with --allow-no-auth no header is needed/sent.
+TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".webflow_bridge", "token")
+
+
+def _auth_headers() -> dict:
+    token = os.environ.get("WBF_TOKEN")
+    if not token:
+        path = os.environ.get("WBF_TOKEN_FILE") or TOKEN_FILE
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                token = fh.read().strip()
+        except OSError:
+            token = ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 # ---------------- tiny HTTP client (mirrors the publish scripts) ----------
@@ -35,7 +53,7 @@ def post(payload: dict):
     req = urllib.request.Request(
         ENDPOINT,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_auth_headers()},
         method="POST",
     )
     try:

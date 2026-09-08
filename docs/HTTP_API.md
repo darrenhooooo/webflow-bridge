@@ -7,8 +7,9 @@
 
 The bridge is drivable by **ANY generic HTTP tool** — `curl`, `n8n` HTTP
 Request nodes, browser `fetch`, PowerShell, Postman, a cron job — with **zero
-bespoke SDK**. There is no client library, no auth handshake, no magic header:
-one `POST /command` with a JSON body is the entire surface. The OpenAPI file
+bespoke SDK**. There is no client library and no magic header: one
+`POST /command` with a JSON body (plus the shared-secret bearer token below)
+is the entire surface. The OpenAPI file
 above lets codegen / n8n / Postman import the API; this guide is enough for a
 human with curl.
 
@@ -23,20 +24,31 @@ your tool ──POST /command──▶ daemon (127.0.0.1:10086) ──WebSocket�
 | Base URL | `http://127.0.0.1:10086` |
 | Endpoint | `POST /command` |
 | Content-Type | `application/json; charset=utf-8` |
+| Auth | `Authorization: Bearer <token>` (required; token in `~/.webflow_bridge/token`) |
 | Request body | `{"action": "<action>", "args": {...}, "session": "default"}` |
 
-**Origin-guard rule.** The daemon rejects any POST that carries an `Origin`
-header which is not `http://127.0.0.1:10086`, `http://localhost:10086` or
-`null`, answering `403 {"error":"cross-origin POST blocked"}`. This is a CSRF
-guard for browser-originated requests only. **Plain scripts and curl send no
-`Origin` header and are always allowed** — just don't copy an `Origin` header
-out of a browser, and don't set one yourself.
+**Auth.** The daemon runs shared-secret auth by default. On first start it
+creates `~/.webflow_bridge/token` (random). Send it on every POST as
+`Authorization: Bearer <token>` (or `export WBF_TOKEN=$(cat ~/.webflow_bridge/token)`
+and use `$WBF_TOKEN` below). Start the daemon with `--allow-no-auth` only as a
+local migration window. The extension gets the token automatically from
+`GET /config`.
+
+**Origin-guard rule.** After auth passes, the daemon rejects any POST that
+carries an `Origin` header which is not `http://127.0.0.1:10086` or
+`http://localhost:10086`, answering `403 {"error":"cross-origin POST blocked"}`.
+This is a CSRF guard for browser-originated requests only (`null` origins —
+sandboxed iframes / file pages — are deliberately rejected; they cannot know
+the token anyway). **Plain scripts and curl send no `Origin` header and are
+unaffected** — just don't copy an `Origin` header out of a browser, and don't
+set one yourself.
 
 Sanity check that the daemon is up and the extension is connected:
 
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"probe","args":{},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"tab": {...}, "paths": {...}}}}
 # If the extension is not connected you instead get:
@@ -58,6 +70,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"probe","args":{},"session":"default"}'
 ```
 
@@ -66,6 +79,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_list","args":{},"session":"default"}'
 ```
 
@@ -75,6 +89,7 @@ response carries its id: `{"value": {"id": <TAB_ID>, "url": <url>}}`:
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_open","args":{"url":"https://example.com"},"session":"default"}'
 ```
 
@@ -85,11 +100,13 @@ target a non-active tab:
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"evaluate","args":{"code":"(() => document.title)()"},"session":"default"}'
 
 # targeted at a specific tab instead of the active one:
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"evaluate","args":{"code":"document.location.href","tabId":<TAB_ID>},"session":"default"}'
 ```
 
@@ -99,6 +116,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"navigate","args":{"url":"https://example.com"},"session":"default"}'
 ```
 
@@ -110,6 +128,7 @@ An optional `group_title` also groups that tab under a named tab group
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"navigate","args":{"url":"https://example.com","newTab":true,"group_title":"Scratch"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "tabId": 9, "groupId": 2}}}
 ```
@@ -120,6 +139,7 @@ allowlist). Example: real keyboard input via `Input.insertText` (result `{}`):
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"cdp","args":{"method":"Input.insertText","params":{"text":"hi"}},"session":"default"}'
 
 # arbitrary CDP: {"method":"Runtime.evaluate","params":{"expression":"1+1"}} returns {"value": {"result": {...}}}
@@ -140,6 +160,7 @@ substring; current-window tabs preferred; **never opens a tab**):
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"find_tab","args":{"url":"example.com"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "url": "https://example.com/", "tabId": 7}}}
 # nothing matched:
@@ -148,6 +169,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 # bring the matched tab to the front too:
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"find_tab","args":{"url":"https://example.com/","active":true},"session":"default"}'
 ```
 
@@ -159,6 +181,7 @@ path}` in document order (`"max"` caps the list, default 400). `@eN` refs /
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"snapshot","args":{},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"url": "https://example.com/",
 #     "title": "Example Domain",
@@ -181,12 +204,14 @@ changes, call `snapshot` again):
 # click the first snapshot node (@e0):
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"click","args":{"selector":"@e0"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "tag": "a", "text": "More information..."}}}
 
 # a plain CSS selector works too (first match wins):
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"click","args":{"selector":"p a"},"session":"default"}'
 ```
 
@@ -200,12 +225,14 @@ regions get real text via CDP `Input.insertText` after focusing. `"value"` /
 # auto -> value mode for an input/textarea/select (selector from snapshot/HTML):
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"fill","args":{"selector":"#search","value":"webflow bridge"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "tag": "input", "mode": "value"}}}
 
 # contenteditable (e.g. a rich-text composer) — focus + CDP-typed real text:
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"fill","args":{"selector":"[contenteditable]","value":"hello world","mode":"contenteditable"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "tag": "div", "mode": "contenteditable"}}}
 ```
@@ -221,6 +248,7 @@ cannot write arbitrary local paths):
 # whole visible viewport, PNG (default)
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"screenshot","args":{},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"base64": "iVBORw0KGgoAAAANSUhEUgAA...",
 #     "mime": "image/png", "width": 1280, "height": 720}}}
@@ -229,11 +257,13 @@ curl -s -X POST http://127.0.0.1:10086/command \
 #   echo '<base64>' | base64 -d > element.jpg
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"screenshot","args":{"format":"jpeg","quality":80,"selector":"@e0"},"session":"default"}'
 
 # full-page capture
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"screenshot","args":{"fullPage":true},"session":"default"}'
 ```
 
@@ -245,6 +275,7 @@ selector must resolve to an `<input type="file">` (hidden file inputs work):
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"upload","args":{"selector":"input[type=file]","file":"C:\\Users\\me\\Documents\\resume.pdf"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "file": "C:\\Users\\me\\Documents\\resume.pdf", "tag": "input"}}}
 # selector does not match a file input / element missing:
@@ -257,6 +288,7 @@ included). The value is **base64 PDF data** — the client writes the file:
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"save_as_pdf","args":{},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"base64": "JVBERi0xLjQK...", "mime": "application/pdf"}}}
 ```
@@ -269,12 +301,14 @@ scroll it into view and click its center:
 # raw coordinates
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"mouse_click","args":{"x":420,"y":260},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "x": 420, "y": 260}}}
 
 # by element (selector wins over x/y)
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"mouse_click","args":{"selector":"#search-btn"},"session":"default"}'
 ```
 
@@ -288,12 +322,14 @@ focuses that element first. Unknown keys/modifiers answer an explicit error:
 # press Enter in the focused field
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"send_key","args":{"key":"Enter"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "key": "Enter"}}}
 
 # Ctrl+A (select all) inside #editor — modifier shortcut, no text inserted
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"send_key","args":{"key":"a","modifiers":["ctrl"],"selector":"#editor"},"session":"default"}'
 ```
 
@@ -304,6 +340,7 @@ emoji / long text — no per-key events):
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"type_text","args":{"text":"hello 世界","selector":"#editor"},"session":"default"}'
 # => {"status": "ok", "data": {"value": {"success": true, "len": 8}}}
 ```
@@ -313,6 +350,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_activate","args":{"tabId":<TAB_ID>},"session":"default"}'
 ```
 
@@ -321,6 +359,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_close","args":{"tabId":<TAB_ID>},"session":"default"}'
 ```
 
@@ -330,6 +369,7 @@ curl -s -X POST http://127.0.0.1:10086/command \
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_close_all_but","args":{"tabId":<TAB_ID>},"session":"default"}'
 ```
 

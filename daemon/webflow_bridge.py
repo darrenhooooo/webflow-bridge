@@ -109,17 +109,23 @@ send_key, type_text, tabs_close, tabs_close_all_but, tabs_activate) and
 defaults to the extension's active tab. save_as_pdf takes no tabId — it always
 prints the ACTIVE tab. find_tab takes no tabId — it searches every window.
 
-Origin guard: POSTs carrying an "Origin" header that is not in
-{"http://127.0.0.1:10086", "http://localhost:10086", "null"} are rejected
-with 403 {"error": "cross-origin POST blocked"} — a CSRF guard for
+Auth: when enabled (default) every POST /command must carry an
+"Authorization: Bearer <token>" header (token file: ~/.webflow_bridge/token;
+--allow-no-auth disables this for old local scripts). The extension WS
+handshake must present "?token=<tok>" (see _serve_ws). Origin guard (kept as
+second layer): POSTs carrying an "Origin" header that is not in
+{"http://127.0.0.1:10086", "http://localhost:10086"} are rejected with 403
+{"error": "cross-origin POST blocked"} — a CSRF guard for
 browser-originated requests. Native scripts/curl send no Origin header and
-are unaffected; the WebSocket handshake path is not subject to the guard.
+are unaffected. GET /config answers {"token": ...} to the extension only
+(no CORS headers, so a web page cannot read it).
 
 The WebSocket server is a minimal hand-rolled RFC 6455 server (no third-party
 deps). Server frames are unmasked; client (browser) frames are masked.
 """
 from __future__ import annotations
 
+import argparse
 import base64
 import concurrent.futures
 import hashlib
@@ -128,6 +134,7 @@ import json
 import logging
 import mimetypes
 import os
+import secrets
 import socket
 import struct
 import threading
@@ -141,15 +148,81 @@ WS_PORT = 10087
 
 # Origins a browser page may POST from (CSRF guard for browser-originated
 # requests; see do_POST). Native scripts/curl send no "Origin" header and are
-# always allowed. "null" covers sandboxed/file-origin pages. The daemon's own
-# loopback origin spellings are trusted so a local tool page can POST from
-# either. The WebSocket handshake is a separate path, not guarded here.
-ALLOWED_ORIGINS = {"http://127.0.0.1:10086", "http://localhost:10086", "null"}
+# always allowed. The daemon's own loopback origin spellings are trusted so a
+# local tool page can POST from either. The WebSocket handshake is a separate
+# path, guarded by the shared token (see _serve_ws).
+# NOTE: "null" (sandboxed/file-origin pages) is intentionally NOT allowed: a
+# hostile web page can open a sandboxed iframe and fire a no-CORS fetch whose
+# Origin serialises as "null", which would otherwise bypass this guard. Every
+# request must instead present the shared bearer token (see AUTH_TOKEN).
+ALLOWED_ORIGINS = {"http://127.0.0.1:10086", "http://localhost:10086"}
 
 EVAL_TIMEOUT = 120          # seconds an HTTP caller waits for the extension
 WS_ACCEPT_KEY = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"   # RFC 6455 GUID
 MAX_FRAME = 64 << 20        # sanity cap for a single WS message (64 MiB)
 KEEPALIVE_INTERVAL = 15     # daemon->extension WS ping period (MV3 SW keepalive)
+
+# ---------------------------------------------------------------------------
+# Shared-secret auth (default ON). The daemon owns a random token persisted at
+# TOKEN_PATH (0600 on POSIX; Windows inherits the user-profile ACL). Every
+# HTTP POST /command must carry "Authorization: Bearer <token>"; the extension
+# WebSocket handshake must present ?token=<token>. A browser page cannot read
+# the token file and cannot read GET /config (no CORS header), so a hostile
+# page / sandboxed iframe / DNS-rebinding attempt is rejected. A local process
+# running as the same user can read the file — that is outside this threat
+# model (OS-level isolation would be needed); audit logging covers it.
+# ---------------------------------------------------------------------------
+DEFAULT_TOKEN_DIR = os.path.join(os.path.expanduser("~"), ".webflow_bridge")
+DEFAULT_TOKEN_PATH = os.path.join(DEFAULT_TOKEN_DIR, "token")
+
+AUTH_TOKEN = None            # set by load_auth_token(); None == auth disabled
+AUTH_REQUIRED = True         # --allow-no-auth flips to False
+AUDIT_PATH = None            # optional JSONL audit file (--audit)
+CDP_ALLOWLIST = None         # optional set/list of CDP methods (--cdp-allowlist)
+HUMANIZE = False             # --humanize: human-like pacing for every action
+
+
+def load_auth_token(path: str | None = None) -> str | None:
+    """Load (or create) the shared token file. Returns None when disabled."""
+    if not AUTH_REQUIRED:
+        return None
+    token_path = path or os.environ.get("WBF_TOKEN_FILE") or DEFAULT_TOKEN_PATH
+    env_token = os.environ.get("WBF_TOKEN")
+    if env_token:
+        return env_token
+    try:
+        with open(token_path, "r", encoding="utf-8") as fh:
+            tok = fh.read().strip()
+            if tok:
+                return tok
+    except FileNotFoundError:
+        pass
+    tok = secrets.token_hex(32)
+    try:
+        os.makedirs(os.path.dirname(token_path), exist_ok=True)
+        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(tok + "\n")
+    except OSError:
+        log.warning("cannot persist auth token at %s", token_path)
+    return tok
+
+
+def auth_headers(token: str) -> dict:
+    """Header dict a native client sends to authenticate."""
+    return {"Authorization": f"Bearer {token}"}
+
+
+def check_auth(auth_header: str | None) -> bool:
+    """True when the request authenticates (token matches or auth disabled)."""
+    if AUTH_TOKEN is None:
+        return True
+    if not auth_header:
+        return False
+    scheme, _, cred = auth_header.partition(" ")
+    return scheme.lower() == "bearer" and secrets.compare_digest(
+        cred.strip(), AUTH_TOKEN)
+
 
 log = logging.getLogger("webflow-bridge")
 
@@ -172,7 +245,7 @@ def _recv_exact(conn: socket.socket, n: int) -> bytes:
 
 
 def _read_http_headers(conn: socket.socket, limit: int = 1 << 16) -> str:
-    """Read raw request head of the WS upgrade up to \\r\\n\\r\\n."""
+    """Read raw request head of the WS upgrade up to CRLFCRLF."""
     buf = b""
     while b"\r\n\r\n" not in buf:
         chunk = conn.recv(4096)
@@ -183,6 +256,41 @@ def _read_http_headers(conn: socket.socket, limit: int = 1 << 16) -> str:
             raise RuntimeError("WS handshake headers too large")
     head, _, _ = buf.partition(b"\r\n\r\n")
     return head.decode("latin-1")
+
+
+def _parse_request_line(head: str) -> tuple[str, str, str]:
+    """Split the WS/HTTP request line -> (method, path, version)."""
+    line = head.split("\r\n", 1)[0]
+    parts = line.split(" ")
+    if len(parts) >= 2:
+        return parts[0], parts[1], parts[2] if len(parts) > 2 else ""
+    return "", "", ""
+
+
+def _query_token(path: str) -> str | None:
+    """Pull the ?token= value out of a WS request path (None if absent)."""
+    if "?" not in path:
+        return None
+    query = path.split("?", 1)[1]
+    for pair in query.split("&"):
+        k, _, v = pair.partition("=")
+        if k == "token":
+            from urllib.parse import unquote
+            return unquote(v)
+    return None
+
+
+def audit(action: str, who: str, detail: str = "") -> None:
+    """Append one JSONL audit line (if --audit was given); always info-log."""
+    entry = {"ts": time.time(), "action": action, "who": who, "detail": detail}
+    log.info("audit action=%s who=%s%s", action, who,
+             f" {detail}" if detail else "")
+    if AUDIT_PATH:
+        try:
+            with open(AUDIT_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            log.warning("audit write failed: %s", exc)
 
 
 def _read_frame(conn: socket.socket):
@@ -235,6 +343,11 @@ class Bridge:
         self._ws_sock = None        # current extension connection
         self._pending = {}          # request id -> concurrent.futures.Future
         self._ids = itertools.count(1)
+        # Per-request humanize flag (P1): dispatch() sets it on the handling
+        # thread, _roundtrip() reads it before forwarding the WS payload.
+        # threading.local keeps concurrent HTTP requests on different threads
+        # from leaking the flag into each other's roundtrips.
+        self._humanize_tls = threading.local()
 
     # -------- WS server lifecycle -----------------------------------------
 
@@ -260,6 +373,23 @@ class Bridge:
     def _serve_ws(self, conn: socket.socket) -> None:
         # --- handshake ---
         head = _read_http_headers(conn)
+        # P0-3: the extension must present the shared token as
+        # "GET /?token=<tok>" in the handshake request line. A stale extension
+        # (daemon rotated its token) or a local process probing the slot gets
+        # a plain HTTP 403 and the connection is closed — no 101 upgrade.
+        if AUTH_TOKEN is not None:
+            _method, path, _ver = _parse_request_line(head)
+            tok = _query_token(path)
+            if not tok or not secrets.compare_digest(tok, AUTH_TOKEN):
+                try:
+                    conn.sendall(
+                        "HTTP/1.1 403 Forbidden\r\n"
+                        "Content-Length: 0\r\n"
+                        "Connection: close\r\n\r\n".encode("ascii"))
+                except OSError:
+                    pass
+                conn.close()
+                return
         key = None
         for line in head.split("\r\n"):
             if line.lower().startswith("sec-websocket-key:"):
@@ -390,6 +520,10 @@ class Bridge:
         exactly per the contract (503 for a missing extension, otherwise a
         200 {"status":"error",...} response).
         """
+        if getattr(self._humanize_tls, "on", False):
+            # P1: dispatch() humanized this request — stamp the WS payload so
+            # the extension adds pacing to its browser actions.
+            ws_payload["humanize"] = True
         rid = ws_payload["id"]
         fut = concurrent.futures.Future()
         with self._lock:
@@ -434,8 +568,37 @@ class Bridge:
                                  "error": "'args.tabId' must be an integer when provided"}))
         return tab_id, None
 
-    def dispatch(self, payload):
-        """Handle one POST /command payload -> (http_status, response_dict)."""
+    @staticmethod
+    def _audit_detail(action, args) -> str:
+        """Audit detail at action/method/url level — never code/value bodies."""
+        if not isinstance(args, dict):
+            return ""
+        parts = []
+        method = args.get("method")
+        if isinstance(method, str) and method:
+            parts.append("method=" + method)
+        url = args.get("url")
+        if isinstance(url, str) and url:
+            parts.append("url=" + url)
+        return " ".join(parts)
+
+    @staticmethod
+    def _cdp_allowed(method: str) -> bool:
+        """True when method passes CDP_ALLOWLIST (exact, or 'Domain.*' wild)."""
+        for entry in CDP_ALLOWLIST or ():
+            if entry.endswith(".*"):
+                if method.startswith(entry[:-1]):
+                    return True
+            elif method == entry:
+                return True
+        return False
+
+    def dispatch(self, payload, who: str = ""):
+        """Handle one POST /command payload -> (http_status, response_dict).
+
+        `who` (the HTTP client address) is passed on for audit logging; the
+        WS-internal forward of an action is never audited again.
+        """
         if not isinstance(payload, dict):
             return 200, {"status": "error", "error": "body must be a JSON object"}
         action = payload.get("action")
@@ -444,6 +607,15 @@ class Bridge:
         if session != "default":
             return 200, {"status": "error",
                          "error": f"unsupported session {session!r}: only 'default' is served"}
+        # P1: per-request humanize decision — daemon-wide --humanize, a
+        # top-level "humanize": true, or args.humanize=true. _roundtrip()
+        # stamps it onto the WS payload this request forwards.
+        self._humanize_tls.on = bool(HUMANIZE) or payload.get("humanize") is True \
+            or (isinstance(args, dict) and args.get("humanize") is True)
+        # P0-5: audit every action BEFORE it runs. Detail stays at the
+        # action/method/url level (never evaluate code or fill values).
+        audit(action if isinstance(action, str) else "?", who,
+              detail=self._audit_detail(action, args))
 
         if action == "evaluate":
             rid = self._next_request_id()
@@ -510,6 +682,11 @@ class Bridge:
             if not isinstance(method, str) or not method.strip():
                 return 200, {"status": "error",
                              "error": "'args.method' (string) is required"}
+            if CDP_ALLOWLIST is not None and not self._cdp_allowed(method):
+                # P0-4: optional --cdp-allowlist turns the unrestricted CDP
+                # passthrough into a minimal-permission allowlist.
+                return 200, {"status": "error",
+                             "error": "cdp method not allowed by --cdp-allowlist"}
             params = args.get("params")
             if params is not None and not isinstance(params, dict):
                 return 200, {"status": "error",
@@ -1010,6 +1187,14 @@ class CommandHandler(BaseHTTPRequestHandler):
     def do_POST(self):                                  # noqa: N802 (stdlib API)
         if self.path != "/command":
             return self._send_json(404, {"error": "not found: use POST /command"})
+        # P0-1: bearer-token auth comes BEFORE the Origin guard — a browser
+        # page (sandboxed iframe Origin:null, DNS-rebinding) cannot know the
+        # token and is stopped here with 401, whatever Origin it carries.
+        who = str(self.client_address[0]) if self.client_address else ""
+        if not check_auth(self.headers.get("Authorization")):
+            audit("unauthorized http", who, detail=self.path)
+            return self._send_json(401, {
+                "error": "unauthorized: missing or invalid bearer token"})
         # CSRF/Origin guard, before the body is parsed: browsers attach an
         # "Origin" header to page-originated POSTs; reject any origin outside
         # ALLOWED_ORIGINS. Absent Origin (native scripts/curl) is allowed.
@@ -1027,13 +1212,19 @@ class CommandHandler(BaseHTTPRequestHandler):
         except ValueError:
             return self._send_json(200, {"status": "error", "error": "invalid JSON body"})
         try:
-            status, body = BRIDGE.dispatch(payload)
+            status, body = BRIDGE.dispatch(payload, who=who)
         except Exception as exc:                        # noqa: BLE001
             log.exception("dispatch failed")
             status, body = 200, {"status": "error", "error": f"internal error: {exc}"}
         self._send_json(status, body)
 
     def do_GET(self):                                   # noqa: N802
+        if self.path == "/config":
+            # P0-2: the extension bootstraps the shared token here (its
+            # <all_urls> host permission lets it read the cross-origin body).
+            # A hostile web page cannot: no Access-Control-Allow-Origin is
+            # sent, so CORS keeps the response unreadable to page JS.
+            return self._send_json(200, {"token": AUTH_TOKEN or ""})
         return self._send_json(405, {"error": "only POST /command is supported"})
 
     def _send_json(self, status: int, obj) -> None:
@@ -1054,8 +1245,38 @@ class CommandHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, CDP_ALLOWLIST, HUMANIZE
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s")
+    # P0-4: CLI switches — auth is ON by default; opt out explicitly.
+    parser = argparse.ArgumentParser(
+        prog="webflow_bridge",
+        description="Webflow Bridge daemon — local HTTP(:10086) + WS(:10087) "
+                    "bridge to the Chrome 'Webflow Bridge' MV3 extension.")
+    parser.add_argument("--allow-no-auth", action="store_true",
+                        help="disable bearer-token auth (INSECURE — migration "
+                             "only for old local scripts)")
+    parser.add_argument("--audit", metavar="PATH",
+                        help="append JSONL audit lines {ts,action,who,detail} "
+                             "to PATH (info-logging is always on)")
+    parser.add_argument("--cdp-allowlist", metavar="METHODS",
+                        help="comma-separated CDP methods the cdp action may "
+                             "call; 'Domain.*' allows a whole domain "
+                             "(default: unrestricted passthrough)")
+    parser.add_argument("--humanize", action="store_true",
+                        help="human-like pacing for browser actions "
+                             "(random delays/jitter/scroll micro-moves)")
+    opts = parser.parse_args()
+    if opts.allow_no_auth:
+        AUTH_REQUIRED = False
+    if opts.audit:
+        AUDIT_PATH = opts.audit
+    if opts.cdp_allowlist:
+        CDP_ALLOWLIST = [s.strip() for s in opts.cdp_allowlist.split(",")
+                         if s.strip()]
+    if opts.humanize:
+        HUMANIZE = True
+    AUTH_TOKEN = load_auth_token()          # P0-1/P0-3: shared-secret source
     try:
         BRIDGE.start_ws_server()
         httpd = ThreadingHTTPServer((HTTP_HOST, HTTP_PORT), CommandHandler)
@@ -1071,6 +1292,20 @@ def main() -> None:
     print(f"    HTTP  : http://{HTTP_HOST}:{HTTP_PORT}    POST /command")
     print("            (existing publish scripts post here, unchanged)")
     print(f"    WS    : ws://{WS_HOST}:{WS_PORT}          Chrome extension connects here")
+    if AUTH_TOKEN is None:
+        print("  AUTH  : DISABLED (--allow-no-auth) — no bearer token required")
+    elif os.environ.get("WBF_TOKEN"):
+        print("  AUTH  : bearer token required (WBF_TOKEN env var)")
+    else:
+        print(f"  AUTH  : bearer token required — file: "
+              f"{os.environ.get('WBF_TOKEN_FILE') or DEFAULT_TOKEN_PATH}")
+        print("          (0600; the token value is never printed to the terminal)")
+    if AUDIT_PATH:
+        print(f"  AUDIT : JSONL -> {AUDIT_PATH}")
+    if CDP_ALLOWLIST is not None:
+        print("  CDP   : allowlist -> " + " ".join(CDP_ALLOWLIST))
+    if HUMANIZE:
+        print("  MODE  : humanize pacing ON (daemon-wide)")
     print("  Load the 'Webflow Bridge' extension:")
     print("    chrome://extensions  ->  Developer mode  ->  Load unpacked  ->  extension/")
     print("  Then evaluate:  curl -X POST http://127.0.0.1:10086/command \\")

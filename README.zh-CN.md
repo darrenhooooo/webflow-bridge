@@ -146,6 +146,11 @@ python3 daemon/webflow_bridge.py
 > (例如 python.org 安装的)— 不是 Microsoft Store 的假桩
 > (那里用 `py -3.11 daemon/webflow_bridge.py` 也可以)。
 
+daemon 默认开启共享密钥鉴权: 首次启动创建 `~/.webflow_bridge/token`(随机,
+0600)。原生客户端每个 POST 都要带 `Authorization: Bearer <token>`(或导出
+`WBF_TOKEN`);扩展通过 `GET /config` 自动引导。仅本地迁移窗口期可用
+`--allow-no-auth` 关闭校验。
+
 看到带两个监听端口的启动横幅即成功:
 
 ```
@@ -181,6 +186,7 @@ python3 daemon/webflow_bridge.py
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"evaluate","args":{"code":"(() => document.title)()"},"session":"default"}'
 ```
 
@@ -263,10 +269,12 @@ python3 tools/p0_smoke.py
 ```bash
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"cdp","args":{"method":"Input.insertText","params":{"text":"hi"}},"session":"default"}'
 
 curl -s -X POST http://127.0.0.1:10086/command \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_list","args":{},"session":"default"}'
 ```
 
@@ -279,10 +287,13 @@ curl -s -X POST http://127.0.0.1:10086/command \
 脚本读取 `response.get("data", {}).get("value")`, 所以错误响应(无 `data`)
 行为与之前完全一致。
 
-源站防护: 任何 `Origin` 头不是 `http://127.0.0.1:10086`、
-`http://localhost:10086` 或 `null` 的 POST 会得到
-`403 {"error":"cross-origin POST blocked"}`。原生脚本/curl 不带 `Origin` 头,
-不受影响;WebSocket 握手不设防。
+鉴权与源站防护: 先校验 bearer token——没有合法 `Authorization` 头的 POST 返回
+`401 {"error":"unauthorized..."}`。随后任何 `Origin` 头不是 `http://127.0.0.1:10086`
+或 `http://localhost:10086` 的 POST 会得到
+`403 {"error":"cross-origin POST blocked"}`(`null` 源站——sandbox iframe /
+file 页面——有意拒绝,它们反正拿不到 token)。原生脚本/curl 不带 `Origin` 头,
+鉴权通过后不受影响。扩展 WebSocket 握手必须带 `?token=<token>`,缺失或错误
+得到纯 HTTP 403。
 
 ### 内部 WebSocket 线格式(daemon ↔ 扩展, :10087)
 

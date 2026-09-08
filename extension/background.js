@@ -128,6 +128,9 @@
 // alarm still fires on the next wake-up and force-reconnects a dead socket.
 
 const WS_URL = 'ws://127.0.0.1:10087';
+const CONFIG_URL = 'http://127.0.0.1:10086/config'; // daemon token bootstrap
+const TOKEN_STORE_KEY = 'wbf_token';                  // chrome.storage.local key
+const CONFIG_FETCH_TIMEOUT_MS = 2500;
 const MAX_BACKOFF_MS = 30000;   // reconnect backoff cap (spec)
 const HEARTBEAT_MS = 15000;     // < 30 s MV3 idle limit
 const DEBUGGER_VERSION = '1.3'; // chrome.debugger protocol version
@@ -157,25 +160,123 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   }
 });
 
+// ---------------- humanize (P1, opt-in pacing) ----------------
+// Off by default: every path checks `msg.humanize === true`, so the original
+// verified flows run byte-for-byte unchanged. Boundaries (red lines): NO
+// captcha solving, NO fingerprint/UA spoofing — only timing/rhythm on the
+// real input paths (Input.dispatch*, native value setter, el.click).
+
+function humanizeDelay(minMs, maxMs) {
+  const span = Math.max(0, maxMs - minMs);
+  return new Promise((resolve) =>
+    setTimeout(resolve, minMs + Math.floor(Math.random() * (span + 1))));
+}
+
+// Optional micro scroll (±10 px each axis) before an evaluate reply is sent;
+// runs page-side through the SAME debugger session (no content script).
+function humanizeScrollExpression() {
+  const dx = Math.floor(Math.random() * 21) - 10;
+  const dy = Math.floor(Math.random() * 21) - 10;
+  return `(() => { try { window.scrollBy(${dx}, ${dy}); return true; } catch (_) { return false; } })()`;
+}
+
 // ---------------- socket management ----------------
 
-function connect() {
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+// ---------------- daemon auth token (P0-6) ----------------
+// The daemon now requires the shared bearer token on the WS handshake
+// (ws://127.0.0.1:10087?token=<tok>). We cache it in chrome.storage.local
+// ('wbf_token') and bootstrap it from GET http://127.0.0.1:10086/config when
+// absent. /config answers no CORS headers, so only an extension page with the
+// <all_urls> host permission can read it — a hostile web page cannot.
+
+let wbfToken = null;            // in-memory cache of the daemon auth token
+let wbfTokenLegacy = false;     // /config answered 405: pre-auth daemon
+let wsEverOpened = false;       // current socket completed a real handshake
+
+// GET /config -> {token} (daemon up) | {legacy:true} (daemon too old, no auth)
+// | null (daemon unreachable / timeout — caller retries silently).
+function fetchDaemonToken() {
+  return new Promise((resolve) => {
+    let ctl = null;
+    let timer = null;
+    try { ctl = new AbortController(); } catch (_) { /* noop */ }
+    if (ctl) timer = setTimeout(() => ctl.abort(), CONFIG_FETCH_TIMEOUT_MS);
+    const opts = ctl ? { signal: ctl.signal } : {};
+    fetch(CONFIG_URL, opts)
+      .then((resp) => {
+        if (resp.status === 405) return { legacy: true };  // old daemon
+        if (!resp.ok) return null;
+        return resp.json().then((j) =>
+          (j && typeof j.token === 'string') ? { token: j.token } : null);
+      })
+      .catch(() => null)
+      .then((out) => {
+        if (timer) clearTimeout(timer);
+        resolve(out);
+      });
+  });
+}
+
+// Token to present on the WS handshake, or null when the daemon is
+// unreachable (the existing reconnect loop retries, silent while it is down).
+async function ensureWsToken() {
+  if (wbfToken !== null) return wbfToken;
+  if (wbfTokenLegacy) return null;
   try {
-    ws = new WebSocket(WS_URL);
+    const stored = await chrome.storage.local.get(TOKEN_STORE_KEY);
+    if (typeof stored[TOKEN_STORE_KEY] === 'string') {
+      wbfToken = stored[TOKEN_STORE_KEY];
+      return wbfToken;
+    }
+  } catch (_) { /* storage unreadable — refetch below */ }
+  const out = await fetchDaemonToken();
+  if (out === null) return null;                 // daemon down: silent retry
+  if (out.legacy) { wbfTokenLegacy = true; return null; }
+  wbfToken = out.token;
+  try { chrome.storage.local.set({ [TOKEN_STORE_KEY]: wbfToken }); }
+  catch (_) { /* keep the in-memory cache */ }
+  return wbfToken;
+}
+
+// A connection that closed before the handshake completed means the daemon
+// rejected us (403: token rotated after a daemon restart) or is down. Drop the
+// cached token either way so the next connect refetches /config exactly once
+// before retrying — the daemon restart case then heals automatically.
+function invalidateWsToken() {
+  wbfToken = null;
+  try { chrome.storage.local.remove(TOKEN_STORE_KEY); } catch (_) { /* noop */ }
+}
+
+async function connect() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  const token = await ensureWsToken();
+  if (token === null && !wbfTokenLegacy) {
+    // Daemon not up yet: keep the existing silent backoff loop.
+    ws = null;
+    scheduleReconnect();
+    return;
+  }
+  const url = wbfTokenLegacy
+    ? WS_URL
+    : WS_URL + '?token=' + encodeURIComponent(token);
+  wsEverOpened = false;
+  try {
+    ws = new WebSocket(url);
   } catch (err) {
     scheduleReconnect();
     return;
   }
   ws.onopen = () => {
     backoff = 1000;
+    wsEverOpened = true;
     startHeartbeat();
-    console.log('[web-flow] connected to daemon', WS_URL);
+    console.log('[web-flow] connected to daemon', url);
   };
   ws.onmessage = (ev) => { handleMessage(ev); };
   ws.onclose = () => {
     console.warn('[web-flow] daemon connection closed; retrying');
     stopHeartbeat();
+    if (!wsEverOpened) invalidateWsToken();  // 403 / refused: token may be stale
     ws = null;
     scheduleReconnect();
     cleanupDebuggerSession();   // nothing to serve while the daemon is gone
@@ -594,8 +695,15 @@ async function handleEvaluate(msg) {
     ? await chrome.tabs.get(msg.tabId)
     : await activeTab();
   const result = await evaluateOnTab(tab, msg.code);
-  if (result.ok) send({ id: msg.id, ok: true, value: result.value });
-  else send({ id: msg.id, ok: false, error: result.error });
+  if (result.ok) {
+    if (msg.humanize === true) {
+      // P1: before the reply, a best-effort scroll micro-move (±10 px) so
+      // successive page reads are not perfectly static. Never fatal.
+      try { await evaluateOnTab(tab, humanizeScrollExpression()); }
+      catch (_) { /* micro scroll is best-effort */ }
+    }
+    send({ id: msg.id, ok: true, value: result.value });
+  } else send({ id: msg.id, ok: false, error: result.error });
 }
 
 // ---------------- generic CDP passthrough + tab management ----------------
@@ -1155,6 +1263,7 @@ async function handleSnapshot(msg) {
 // so small DOM shifts are tolerated; a fully stale ref surfaces as an
 // "element not found" {ok:false, error}.
 async function handleClick(msg) {
+  if (msg.humanize === true) await humanizeDelay(200, 900);  // P1 pre-delay
   const tabId = await targetTabId(msg);
   const path = resolveElement(tabId, msg.selector, msg.index);
   const tab = await chrome.tabs.get(tabId);
@@ -1182,6 +1291,7 @@ async function handleClick(msg) {
 // value reply = {success:true, tag, mode:<actual mode used>}.
 async function handleFill(msg) {
   if (typeof msg.value !== 'string') throw new Error('missing value');
+  if (msg.humanize === true) await humanizeDelay(200, 900);  // P1 pre-delay
   const requested = (typeof msg.mode === 'string' ? msg.mode : 'auto').toLowerCase();
   const mode = (requested === 'value' || requested === 'contenteditable')
     ? requested : 'auto';
@@ -1263,6 +1373,7 @@ async function handleFill(msg) {
     return;
   }
   try {
+    if (msg.humanize === true) await humanizeDelay(30, 120);  // P1 jitter
     await chrome.debugger.sendCommand({ tabId }, 'Input.insertText',
                                       { text: msg.value });
   } catch (err) {
@@ -1559,6 +1670,7 @@ async function handleMouseClick(msg) {
   const event = { x, y, button: 'left', clickCount: 1 };
   await cdpSend(tabId, 'Input.dispatchMouseEvent',
                 Object.assign({ type: 'mousePressed' }, event));
+  if (msg.humanize === true) await humanizeDelay(30, 120);  // P1 jitter
   await cdpSend(tabId, 'Input.dispatchMouseEvent',
                 Object.assign({ type: 'mouseReleased' }, event));
   send({ id: msg.id, ok: true, value: { success: true, x, y } });
@@ -1676,6 +1788,7 @@ async function handleSendKey(msg) {
                windowsVirtualKeyCode: spec.vk, modifiers: mods };
   if (typeof text === 'string') down.text = text;
   await cdpSend(tabId, 'Input.dispatchKeyEvent', down);
+  if (msg.humanize === true) await humanizeDelay(30, 120);  // P1 jitter
   await cdpSend(tabId, 'Input.dispatchKeyEvent', up);
   send({ id: msg.id, ok: true, value: { success: true, key } });
 }
