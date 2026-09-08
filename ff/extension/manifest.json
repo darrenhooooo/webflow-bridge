@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Webflow Bridge (Firefox 控制面板)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Webflow Bridge Firefox 版的本机控制面板：显示 daemon/浏览器状态、执行 JS、列出标签页。仅连接本机 127.0.0.1:10096，不收集任何数据。",
   "browser_specific_settings": {
     "gecko": {
