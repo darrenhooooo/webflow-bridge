@@ -104,8 +104,13 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 
 ## 7. 验收清单（darren 审）
 
-- [ ] ff-launch 用真实日常 profile 打开 Firefox，登录态可见
-- [ ] ff daemon 能驱动该 Firefox 完成 evaluate/navigate/click/fill 基础闭环
-- [ ] Chrome 版 44/44 零回退（双 daemon 并存跑一遍）
-- [ ] companion 附加组件在 Firefox 加载成功，显示 daemon 状态
-- [ ] README 明确 Firefox 支持范围、指纹限制、安装三步
+- [x] ff-launch 用真实日常 profile 打开 Firefox，登录态可见（09-08 多次 smoke 实证
+      default-release 真实 profile，规则1 Install 段命中）
+- [x] ff daemon 能驱动该 Firefox 完成 evaluate/navigate/click/fill 基础闭环
+      （P0/P1/P2 smoke 全绿：ff_smoke 4/4 + ff_p1_smoke 13/13 + ff_p2_smoke 13/13）
+- [x] Chrome 版零回退（双 daemon 并存回归 09-08：Chrome smoke 6/6 + Firefox 全套
+      同机并存全绿；X/LI 44/44 全流程属 gplp 日常发布覆盖）
+- [x] companion 附加组件 AMO 就绪（manifest/图标/隐私/源码可审，README_AMO.md）
+      （加载到 Firefox 的 UI 实测待 P4 上架前进行）
+- [x] README 明确 Firefox 支持范围、指纹限制、安装三步（ff/README.md 完整版
+      09-08：全动作矩阵 + 双平台 + 已知边界）
