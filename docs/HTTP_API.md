@@ -1,6 +1,6 @@
 # Webflow Bridge HTTP API — zero-SDK driver guide (standard browser-bridge agent-tool names)
 
-**Webflow Bridge Command API v0.2.0** · base URL `http://127.0.0.1:10086`
+**Webflow Bridge Command API v0.3.0** · base URL `http://127.0.0.1:10086`
 · OpenAPI description: [`../openapi/openapi.yaml`](../openapi/openapi.yaml)
 
 ## What this proves

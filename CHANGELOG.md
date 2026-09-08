@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.3.0 — 2026-09-08
+
+Firefox 版 P2 能力面完成（MINOR bump，见 docs/VERSIONING.md）。
+
+### 新增（Firefox 版 ff/daemon/ff_bridge.py）
+- snapshot：页面注入 a11y 快照生成器（ff/daemon/ff_snapshot_gen.js），返回
+  {url,title,nodes[ref @eN 连续/tag/role/name/text/path]}；ref→path 缓存，
+  click/fill 支持 @eN（DOM 变更后 stale 需重新 snapshot）
+- list_network_requests / get_network_request：BiDi network 事件订阅 →
+  daemon 侧环形缓冲（cap 300，会话内累积，契约对齐 Chrome）
+- list_console_messages：log.entryAdded 订阅，type/text/timestamp，
+  exception 归 type=exception，截断同 Chrome（2000/500）
+- handle_dialog：browsingContext.userPromptOpened/Closed 单槽状态机 +
+  handleUserPrompt；accept/action 双写、promptText、无 dialog 明确报错
+- humanize：--humanize / body 顶层 / args.humanize 三源；input 动作
+  pre-delay 200-900ms + 逐键 30-120ms
+- handle_file_chooser：Firefox BiDi 无原生拦截机制 → 明确报错并引导用
+  upload（input.setFiles），不假装支持
+
+### 测试
+- ff/daemon/test_page_p2.html + ff_p2_smoke.py 13/13 PASS（跑两遍验证幂等）；
+  P0 ff_smoke 4/4 + P1 ff_p1_smoke 13/13 回归全绿
+- 已知语义：click 触发 dialog 时 performActions 挂起直至 handle_dialog
+  并发处理（客户端须并发发 handle_dialog）
+
 ## v0.2.0 — 2026-09-08
 
 Firefox 版 P1 能力面完成（MINOR bump，见 docs/VERSIONING.md）。
