@@ -50,6 +50,7 @@ import itertools
 import json
 import logging
 import os
+import random
 import secrets
 import socket
 import struct
@@ -97,6 +98,30 @@ GETTREE_RETRY_SECS = 0.3    # wait before re-reading a transiently empty tree
 GETTREE_MAX_RETRIES = 3     # extra getTree attempts before trusting the tree
 CLOSE_GRACE_SECS = 0.8      # grace after the WS close frame so Firefox frees
                             # its single session slot (else zombie session)
+
+# ---------------------------------------------------------------------------
+# P2: event collectors + snapshot/dialog/humanize state (Chrome-parity
+# behaviour; see docs/HTTP_API.md and extension/background.js for the
+# contract).  Event subscription was verified live on Firefox 155.0.1:
+# network.requestCompleted / loadingFinished / dataReceived are NOT
+# implemented (session.subscribe answers 'invalid argument'), so only the
+# classes below are subscribed.  requestCompleted/loadingFinished have no
+# replacement: responseCompleted already carries status/mimeType/size
+# (response.bytesReceived) on this backend.
+# ---------------------------------------------------------------------------
+EVENT_CAP = 300            # ring cap for the network/console collectors
+HUMANIZE = False           # --humanize: human-like pacing for input actions
+P2_NET_EVENTS = ["network.beforeRequestSent", "network.responseStarted",
+                 "network.responseCompleted", "network.fetchError"]
+P2_LOG_EVENTS = ["log.entryAdded"]
+P2_PROMPT_EVENTS = ["browsingContext.userPromptOpened",
+                    "browsingContext.userPromptClosed"]
+DIALOG_WAIT_MS = 2000      # handle_dialog: default wait for a dialog
+DIALOG_WAIT_MAX = 15000    # handle_dialog: timeoutMs ceiling (Chrome parity)
+SNAPSHOT_MAX_DEFAULT = 400
+SNAPSHOT_MAX_CAP = 5000
+HERE = os.path.dirname(os.path.abspath(__file__))
+SNAPSHOT_GEN_PATH = os.path.join(HERE, "ff_snapshot_gen.js")
 
 # ---------------------------------------------------------------------------
 # Shared-secret auth (default ON).  Mirrors the Chrome daemon's mechanism in
@@ -330,6 +355,16 @@ class FfBiDi:
         self._attempt_lock = threading.Lock()
         self._backoff = 1.0
         self._next_try = 0.0
+        # ---- P2 event state (written by _on_event on the reader
+        # thread, read by the list_network_requests / handle_dialog etc.
+        # action handlers on HTTP threads).  Buffers are reset on every
+        # (re)connect -- the Chrome edition resets on every debugger
+        # attach, and a fresh session cannot still show a dialog.
+        self._ev_lock = threading.RLock()
+        self.net_events = []       # [{requestId,url,method,type,status,
+                                   #   mimeType,size,timestamp}] (ring)
+        self.console_events = []   # [{type,text,timestamp}] (ring)
+        self.pending_dialog = None # single-slot user-prompt state machine
 
     # -------- state accessors ---------------------------------------------
 
@@ -360,7 +395,9 @@ class FfBiDi:
             sock.sendall(_build_client_frame(
                 0x1, json.dumps(
                     {"id": rid, "method": "session.new",
-                     "params": {"capabilities": {}}},
+                     "params": {"capabilities": {
+                         "alwaysMatch": {
+                             "unhandledPromptBehavior": "ignore"}}}},
                 ).encode("utf-8")))
         except OSError as exc:
             sock.close()
@@ -402,6 +439,11 @@ class FfBiDi:
         self._reader = threading.Thread(target=self._reader_loop,
                                         name="ff-bidi-reader", daemon=True)
         self._reader.start()
+        # P2: a fresh session starts with empty collectors and no pending
+        # dialog, then subscribes the network/log/prompt event classes the
+        # P2 actions consume (best-effort).
+        self._reset_event_state()
+        self._subscribe_events()
         log.info("biDi connected: session=%s firefox=%s",
                  result.get("sessionId"),
                  (result.get("capabilities") or {}).get("browserVersion"))
@@ -466,7 +508,8 @@ class FfBiDi:
             if not isinstance(msg, dict):
                 continue
             if msg.get("type") == "event":
-                continue                                # P0: events not surfaced
+                self._on_event(msg)
+                continue
             rid = msg.get("id")
             if rid is None:
                 continue
@@ -581,6 +624,166 @@ class FfBiDi:
         self._stop.set()
         self._mark_disconnected("daemon shutting down")
 
+    # -------- P2: event ingestion (network / console / user prompts) ----
+
+    def _reset_event_state(self) -> None:
+        """Arm the per-session event buffers and the dialog slot.
+
+        Mirrors the Chrome edition's 'reset on every (re)attach': the ring
+        buffers always describe the CURRENT session from its attach point
+        onward, and a fresh session cannot still be showing a dialog.
+        """
+        with self._ev_lock:
+            self.net_events = []
+            self.console_events = []
+            self.pending_dialog = None
+
+    def _subscribe_events(self) -> None:
+        """Subscribe the event classes the P2 actions consume.
+
+        Only the classes verified on Firefox 155.0.1 are attempted (see the
+        P2 constants block).  A failed subscribe degrades the related list
+        action, never the session.
+        """
+        for ev in (P2_NET_EVENTS + P2_LOG_EVENTS + P2_PROMPT_EVENTS):
+            try:
+                self.command("session.subscribe", {"events": [ev]},
+                             timeout=QUICK_TIMEOUT)
+            except Exception:  # noqa: BLE001
+                log.warning("biDi subscribe %s failed: %s", ev,
+                            self.last_error() or "unknown error")
+
+    def _on_event(self, msg: dict) -> None:
+        """Ingest one BiDi event message (reader thread).
+
+        Shapes verified live on Firefox 155.0.1 -- see the P2 report:
+          network.beforeRequestSent / responseStarted / responseCompleted /
+          fetchError: params.request.request = requestId (uuid), .url,
+          .method, .destination, .initiatorType; responseCompleted adds
+          params.response {status, mimeType, bytesReceived, ...}.
+          log.entryAdded: params {type: console|javascript, method, level,
+          text, timestamp}.
+          browsingContext.userPromptOpened/Closed: single-slot dialog
+          machine (a page blocks on one dialog at a time).
+        """
+        method = msg.get("method")
+        params = msg.get("params")
+        if not isinstance(params, dict):
+            return
+        try:
+            if method in ("network.beforeRequestSent",
+                          "network.responseStarted",
+                          "network.fetchError"):
+                self._net_seen(params, create=True)
+            elif method == "network.responseCompleted":
+                self._net_seen(params, create=True, completed=True)
+            elif method == "log.entryAdded":
+                self._console_add(params)
+            elif method == "browsingContext.userPromptOpened":
+                dv = params.get("defaultValue")
+                with self._ev_lock:
+                    self.pending_dialog = {
+                        "type": str(params.get("type") or "alert"),
+                        "message": str(params.get("message") or ""),
+                        "defaultValue": dv if isinstance(dv, str) else "",
+                        "handler": str(params.get("handler") or ""),
+                        "context": params.get("context"),
+                        "openedAt": time.time(),
+                    }
+            elif method == "browsingContext.userPromptClosed":
+                with self._ev_lock:
+                    self.pending_dialog = None
+        except Exception:  # noqa: BLE001
+            log.warning("biDi event ingest failed for %s", method)
+
+    def _net_seen(self, params: dict, create: bool = False,
+                  completed: bool = False) -> None:
+        """Fold one network.* event into the Chrome-shaped ring record.
+
+        One logical request keeps ONE record across its beforeRequestSent /
+        responseStarted / responseCompleted events (they share the BiDi
+        request id).  Records are appended in event order, capped at
+        EVENT_CAP, and the list actions serve them newest-first -- the
+        Chrome collector contract.
+        """
+        req = params.get("request") or {}
+        url = req.get("url")
+        if not isinstance(url, str) or not (url.startswith("http://")
+                                            or url.startswith("https://")):
+            return                          # skip about:/data:/noise traffic
+        rid = req.get("request")
+        if not isinstance(rid, str) or not rid:
+            return
+        ts_ms = int(time.time() * 1000)
+        with self._ev_lock:
+            rec = next((e for e in self.net_events
+                        if e.get("requestId") == rid), None)
+            if rec is None:
+                if not create:
+                    return
+                rec = {
+                    "requestId": rid,
+                    "url": url,
+                    "method": str(req.get("method") or ""),
+                    "type": _net_type(req.get("destination"),
+                                      req.get("initiatorType")),
+                    "status": None,
+                    "mimeType": None,
+                    "size": None,
+                    "timestamp": ts_ms,
+                }
+                self.net_events.append(rec)
+                if len(self.net_events) > EVENT_CAP:
+                    del self.net_events[0:len(self.net_events) - EVENT_CAP]
+            resp = params.get("response")
+            if isinstance(resp, dict):
+                status = resp.get("status")
+                if isinstance(status, int) and not isinstance(status, bool):
+                    rec["status"] = status
+                mime = resp.get("mimeType")
+                if isinstance(mime, str):
+                    rec["mimeType"] = mime
+                # Firefox has no loadingFinished event; responseCompleted
+                # carries response.bytesReceived (wire bytes) which fills the
+                # Chrome 'size' (encodedDataLength) slot as best as possible.
+                br = resp.get("bytesReceived")
+                if isinstance(br, (int, float)) and not isinstance(br, bool):
+                    rec["size"] = int(br)
+
+    def _console_add(self, params: dict) -> None:
+        """Fold log.entryAdded into the console ring (Chrome-shaped).
+
+        type: 'console' entries keep the console method (log/error/...;
+        warn is normalised to Chrome's 'warning'); 'javascript' entries
+        (uncaught exceptions) map to Chrome's 'exception'.
+        """
+        etype = params.get("type") or "console"
+        method = params.get("method") or ""
+        if etype == "javascript":
+            ctype = "exception"
+        elif method == "warn":
+            ctype = "warning"
+        else:
+            ctype = method or "log"
+        text = params.get("text")
+        if not isinstance(text, str):
+            text = ""
+        if etype == "javascript":
+            text = text[:500]           # Chrome exception text cap
+        else:
+            text = text[:2000]          # Chrome console text cap
+        ts_ms = params.get("timestamp")
+        if not isinstance(ts_ms, (int, float)) or isinstance(ts_ms, bool):
+            ts_ms = time.time() * 1000
+        with self._ev_lock:
+            self.console_events.append({
+                "type": ctype,
+                "text": text,
+                "timestamp": int(ts_ms),
+            })
+            if len(self.console_events) > EVENT_CAP:
+                del self.console_events[0:len(self.console_events) - EVENT_CAP]
+
 
 # ---------------------------------------------------------------------------
 # RemoteValue -> JSON-safe value (Chrome-parity: plain JS data comes back
@@ -617,6 +820,37 @@ def _unwrap_remote(rv):
     return v
 
 
+def _net_type(destination, initiator) -> str:
+    """Best-effort Chrome ResourceType for a BiDi network record.
+
+    Firefox's network events carry request.destination and
+    request.initiatorType (no CDP-equivalent type enum).  The Chrome
+    contract exposes types like Document/XHR/Fetch/Stylesheet/Image; we map
+    the common Firefox values onto those names and fall back to a
+    capitalised destination/initiator (fields Firefox genuinely has).
+    """
+    init = initiator if isinstance(initiator, str) else ""
+    dest = destination if isinstance(destination, str) else ""
+    v = init or dest or ""
+    m = {
+        "xmlhttprequest": "XHR",
+        "document": "Document",
+        "script": "Script",
+        "style": "Stylesheet",
+        "image": "Image",
+        "img": "Image",
+        "media": "Media",
+        "font": "Font",
+        "fetch": "Fetch",
+        "navigation": "Document",
+        "link": "Link",
+        "websocket": "WebSocket",
+    }
+    if v in m:
+        return m[v]
+    return v[:1].upper() + v[1:] if v else ""
+
+
 # ---------------------------------------------------------------------------
 # P1 primitives -- BiDi building blocks shared by the P1 actions below.
 # All JS snippets are built with json.dumps() so caller strings can never
@@ -646,15 +880,12 @@ P1_MOD_MAP = {"alt": "\uE00A", "ctrl": "\uE009",
 
 
 def _p1_sel(args: dict) -> str:
-    """Validate + return the required CSS selector.  Snapshot @refs are a
-    P2 concept on this backend and answer an explicit error."""
+    """Validate + return the selector argument.  Snapshot '@eN' refs pass
+    through here untouched: the Bridge resolves them against the cached
+    snapshot of the SAME context once the target context is known (P2)."""
     sel = args.get("selector")
     if not isinstance(sel, str) or not sel.strip():
         raise FfActionError("", "'args.selector' (CSS string) is required")
-    if sel.startswith("@"):
-        raise FfActionError(
-            "", "snapshot refs not available on firefox backend until P2; "
-            "use a CSS selector")
     return sel
 
 
@@ -793,7 +1024,8 @@ def _p1_focused_kind(ff, ctx: str) -> str:
     return "other"
 
 
-def _p1_type_text(ff, ctx: str, text: str, kind: str) -> None:
+def _p1_type_text(ff, ctx: str, text: str, kind: str,
+                  humanize: bool = False) -> None:
     """Type text as real key events into the CURRENTLY focused element.
     kind 'ce' renders newlines with the literal "\\n" key (Firefox inserts a
     <br>, the contenteditable newline), 'textarea' renders them with the
@@ -812,7 +1044,15 @@ def _p1_type_text(ff, ctx: str, text: str, kind: str) -> None:
             seq.append(nl)
         else:
             seq.append(ch)
-    if seq:
+    if not seq:
+        return
+    if humanize:
+        # P2 humanize pacing: send each code point as its own action chunk
+        # with a random 30-120 ms gap (Chrome's per-insert jitter band).
+        for v in seq:
+            _p1_key_seq(ff, ctx, [v])
+            time.sleep((30 + random.random() * 90) / 1000.0)
+    else:
         _p1_key_seq(ff, ctx, seq)
 
 
@@ -880,6 +1120,11 @@ class Bridge:
 
     def __init__(self, client: FfBiDi) -> None:
         self.ff = client
+        # ---- P2 state --------------------------------------------------
+        self.last_snapshot = None     # {context, byRef, byIndex} newest
+        self._snap_lock = threading.Lock()
+        self._gen_source: str | None = None   # ff_snapshot_gen.js cache
+        self._humanize_tls = threading.local()   # per-request humanize flag
 
     # -------- context resolution ------------------------------------------
 
@@ -966,6 +1211,64 @@ class Bridge:
                 continue
         return tops[0]["context"]
 
+    # -------- P2 helpers ---------------------------------------------------
+
+    def _snapshot_source(self) -> str:
+        """The snapshot generator JS, read once from ff_snapshot_gen.js."""
+        with self._snap_lock:
+            if self._gen_source is None:
+                try:
+                    with open(SNAPSHOT_GEN_PATH, "r", encoding="utf-8") as fh:
+                        self._gen_source = fh.read()
+                except OSError as exc:
+                    raise FfActionError(
+                        "", f"cannot read snapshot generator: {exc}") from exc
+            return self._gen_source
+
+    def _resolve_selector(self, sel: str, ctx: str) -> str:
+        """Resolve a snapshot '@eN' ref into its cached CSS path.
+
+        Same-tab semantics as the Chrome edition's resolveElement: the ref
+        must come from the LAST snapshot taken on the SAME context; a stale
+        or missing snapshot / unknown ref is an explicit error that tells
+        the caller to snapshot again.  Only '@e<digits>' refs are snapshot
+        refs (Chrome /^@e\\d+$/); any other '@...' string stays a plain
+        CSS selector and will simply not match -- same as Chrome.
+        """
+        if not (sel.startswith("@e") and sel[2:].isdigit()):
+            return sel
+        with self._snap_lock:
+            snap = self.last_snapshot
+        if not snap or snap.get("context") != ctx:
+            raise FfActionError(
+                "", "snapshot is stale/ref not found -- call snapshot again")
+        path = (snap.get("byRef") or {}).get(sel)
+        if not isinstance(path, str) or not path:
+            raise FfActionError(
+                "", f"snapshot ref not found: {sel} -- call snapshot again")
+        return path
+
+    def _h_on(self) -> bool:
+        """True when this HTTP request asked for humanize pacing."""
+        return bool(getattr(self._humanize_tls, "on", False))
+
+    def _h_pre(self) -> None:
+        """Humanize pre-delay before an input action (Chrome 200-900 ms)."""
+        if self._h_on():
+            time.sleep((200 + random.random() * 700) / 1000.0)
+
+    def _wait_dialog(self, ctx: str, timeout_ms: int):
+        """Wait up to timeout_ms for a user prompt opened on ctx."""
+        deadline = time.time() + timeout_ms / 1000.0
+        while True:
+            with self.ff._ev_lock:
+                dlg = self.ff.pending_dialog
+            if dlg is not None and dlg.get("context") == ctx:
+                return dict(dlg)
+            if time.time() >= deadline:
+                return None
+            time.sleep(0.05)
+
     # -------- probe --------------------------------------------------------
 
     def _probe(self) -> dict:
@@ -1017,6 +1320,11 @@ class Bridge:
         if session != "default":
             raise FfActionError(
                 "", f"unsupported session {session!r}: only 'default' is served")
+        # P2: per-request humanize decision -- daemon-wide --humanize, a
+        # top-level "humanize": true, or args.humanize=true (Chrome daemon
+        # semantics).  Input actions pace their real-input sequences when on.
+        self._humanize_tls.on = bool(HUMANIZE) or payload.get("humanize") is True \
+            or (isinstance(args, dict) and args.get("humanize") is True)
         audit(action, who, detail=_audit_detail(action, args))
 
         # --- actions that never need a live session -----------------------
@@ -1029,7 +1337,9 @@ class Bridge:
                           "tabs_close", "tabs_activate", "find_tab",
                           "click", "fill", "type_text", "send_key",
                           "mouse_click", "screenshot", "save_as_pdf",
-                          "upload"}:
+                          "upload", "snapshot", "handle_dialog",
+                          "handle_file_chooser", "list_network_requests",
+                          "get_network_request", "list_console_messages"}:
             raise FfActionError("", f"unknown action: {action}")
 
         # --- every remaining action refreshes the context list first -------
@@ -1189,8 +1499,10 @@ class Bridge:
         # -------- P1 actions (real input + capture; contract per docs) ----
 
         if action == "click":
+            self._h_pre()
             sel = _p1_sel(args)
             ctx = self._resolve_context(args, tops)
+            sel = self._resolve_selector(sel, ctx)
             geo = _p1_find_geo(self.ff, ctx, sel)
             if not geo.get("found"):
                 raise FfActionError("", f"no element matches selector {sel}")
@@ -1201,6 +1513,7 @@ class Bridge:
                 "text": geo.get("text") or ""}}}
 
         if action == "fill":
+            self._h_pre()
             sel = _p1_sel(args)
             value = args.get("value")
             if not isinstance(value, str):
@@ -1211,6 +1524,7 @@ class Bridge:
                     "", "'args.mode' must be 'auto', 'value' or "
                     "'contenteditable'")
             ctx = self._resolve_context(args, tops)
+            sel = self._resolve_selector(sel, ctx)
             el = _p1_probe_el(self.ff, ctx, sel)
             if not el.get("found"):
                 raise FfActionError("", f"no element matches selector {sel}")
@@ -1229,7 +1543,8 @@ class Bridge:
                 _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
                 _p1_chord(self.ff, ctx, ["\uE009"], "a")     # select all
                 _p1_chord(self.ff, ctx, [], "\uE003")        # clear
-                _p1_type_text(self.ff, ctx, value, "ce")
+                _p1_type_text(self.ff, ctx, value, "ce",
+                              humanize=self._h_on())
                 return 200, {"status": "ok", "data": {"value": {
                     "success": True, "tag": tag,
                     "mode": "contenteditable"}}}
@@ -1264,6 +1579,7 @@ class Bridge:
                 "success": True, "tag": tag, "mode": "value"}}}
 
         if action == "type_text":
+            self._h_pre()
             text = args.get("text")
             if not isinstance(text, str):
                 raise FfActionError("", "'args.text' (string) is required")
@@ -1273,23 +1589,22 @@ class Bridge:
                 if not isinstance(sel, str) or not sel.strip():
                     raise FfActionError(
                         "", "'args.selector' must be a string")
-                if sel.startswith("@"):
-                    raise FfActionError(
-                        "", "snapshot refs not available on firefox backend "
-                        "until P2; use a CSS selector")
+                sel = self._resolve_selector(sel, ctx)
                 geo = _p1_find_geo(self.ff, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError(
                         "", f"no element matches selector {sel}")
                 _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
             kind = _p1_focused_kind(self.ff, ctx)
-            _p1_type_text(self.ff, ctx, text, kind)
+            _p1_type_text(self.ff, ctx, text, kind,
+                          humanize=self._h_on())
             # len mirrors the Chrome edition's JS .length (UTF-16 units).
             n = sum(2 if ord(c) > 0xFFFF else 1 for c in text)
             return 200, {"status": "ok", "data": {"value": {
                 "success": True, "len": n}}}
 
         if action == "send_key":
+            self._h_pre()
             key = args.get("key")
             if not isinstance(key, str) or not key:
                 raise FfActionError("", "'args.key' (string) is required")
@@ -1320,10 +1635,7 @@ class Bridge:
                 if not isinstance(sel, str) or not sel.strip():
                     raise FfActionError(
                         "", "'args.selector' must be a string")
-                if sel.startswith("@"):
-                    raise FfActionError(
-                        "", "snapshot refs not available on firefox backend "
-                        "until P2; use a CSS selector")
+                sel = self._resolve_selector(sel, ctx)
                 geo = _p1_find_geo(self.ff, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError(
@@ -1334,16 +1646,14 @@ class Bridge:
                 "success": True, "key": key}}}
 
         if action == "mouse_click":
+            self._h_pre()
             ctx = self._resolve_context(args, tops)
             sel = args.get("selector")
             if sel is not None:
                 if not isinstance(sel, str) or not sel.strip():
                     raise FfActionError(
                         "", "'args.selector' must be a string")
-                if sel.startswith("@"):
-                    raise FfActionError(
-                        "", "snapshot refs not available on firefox backend "
-                        "until P2; use a CSS selector")
+                sel = self._resolve_selector(sel, ctx)
                 geo = _p1_find_geo(self.ff, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError(
@@ -1378,10 +1688,7 @@ class Bridge:
                 if not isinstance(sel, str) or not sel.strip():
                     raise FfActionError(
                         "", "'args.selector' must be a string")
-                if sel.startswith("@"):
-                    raise FfActionError(
-                        "", "snapshot refs not available on firefox backend "
-                        "until P2; use a CSS selector")
+                sel = self._resolve_selector(sel, ctx)
                 sid = _p1_find_shared(self.ff, ctx, sel)
                 if sid is None:
                     raise FfActionError(
@@ -1435,6 +1742,7 @@ class Bridge:
             if not os.path.isfile(path):
                 raise FfActionError("", f"file not found: {file_arg}")
             ctx = self._resolve_context(args, tops)
+            sel = self._resolve_selector(sel, ctx)
             el = _p1_probe_el(self.ff, ctx, sel)
             if not el.get("found"):
                 raise FfActionError("", f"no element matches selector {sel}")
@@ -1451,6 +1759,197 @@ class Bridge:
                 "files": [path]})
             return 200, {"status": "ok", "data": {"value": {
                 "success": True, "file": file_arg, "tag": "input"}}}
+
+        # -------- P2 actions --------------------------------------------
+        # Contract: docs/HTTP_API.md + the Chrome daemon's action entries
+        # (daemon/webflow_bridge.py).  Semantics per the Chrome edition
+        # unless a Firefox platform limit forces an explicit error.
+
+        if action == "snapshot":
+            start = args.get("start")
+            if start is None:
+                start = 0
+            elif not isinstance(start, int) or isinstance(start, bool) \
+                    or start < 0:
+                raise FfActionError(
+                    "", "'args.start' must be a non-negative integer "
+                    "when provided")
+            max_nodes = args.get("max")
+            if max_nodes is None:
+                max_nodes = SNAPSHOT_MAX_DEFAULT
+            elif not isinstance(max_nodes, int) or isinstance(max_nodes, bool) \
+                    or max_nodes <= 0:
+                raise FfActionError(
+                    "", "'args.max' must be a positive integer when provided")
+            else:
+                max_nodes = min(max_nodes, SNAPSHOT_MAX_CAP)
+            ctx = self._resolve_context(args, tops)
+            code = self._snapshot_source()
+            if "__START__" not in code or "__LIMIT__" not in code:
+                raise FfActionError(
+                    "", "snapshot generator is missing its placeholders")
+            code = code.replace("__START__", str(start))
+            code = code.replace("__LIMIT__", str(max_nodes))
+            res = self.ff.command(
+                "script.evaluate",
+                {"expression": code, "target": {"context": ctx},
+                 "awaitPromise": True, "resultOwnership": "none"},
+                timeout=EVAL_TIMEOUT)
+            if res.get("type") == "exception":
+                det = res.get("exceptionDetails") or {}
+                exc = det.get("exception") or {}
+                msg = (det.get("text") or exc.get("description")
+                       or exc.get("message") or "snapshot generator threw")
+                raise FfActionError("javascript error", msg)
+            rv = _unwrap_remote((res.get("result") or {})
+                                if isinstance(res, dict) else {})
+            if not isinstance(rv, dict):
+                raise FfActionError("", "snapshot returned no object")
+            if isinstance(rv.get("error"), str):
+                raise FfActionError("", rv["error"])
+            nodes = rv.get("nodes")
+            if not isinstance(nodes, list):
+                nodes = []
+            # Cache ref -> path so click/fill/... resolve @eN on the SAME
+            # context; a fresh start=0 snapshot (or a different context)
+            # resets the cache (Chrome handleSnapshot semantics).
+            with self._snap_lock:
+                if (start == 0 or self.last_snapshot is None
+                        or self.last_snapshot.get("context") != ctx):
+                    self.last_snapshot = {"context": ctx,
+                                          "byRef": {}, "byIndex": []}
+                by_ref = self.last_snapshot["byRef"]
+                by_index = self.last_snapshot["byIndex"]
+                for node in nodes:
+                    if not isinstance(node, dict):
+                        continue
+                    ref = node.get("ref")
+                    path = node.get("path")
+                    if isinstance(ref, str) and isinstance(path, str) and path:
+                        if ref not in by_ref:
+                            by_index.append(path)
+                        by_ref[ref] = path
+            out_nodes = [{k: node[k] for k in
+                          ("ref", "tag", "role", "name", "text", "path")
+                          if k in node}
+                         for node in nodes if isinstance(node, dict)]
+            total = rv.get("total")
+            return 200, {"status": "ok", "data": {"value": {
+                "url": rv.get("url"), "title": rv.get("title"),
+                "total": total if isinstance(total, int) else len(nodes),
+                "start": start, "nodes": out_nodes}}}
+
+        if action == "handle_dialog":
+            accept_arg = args.get("accept")
+            action_arg = args.get("action")
+            if accept_arg is not None and not isinstance(accept_arg, bool):
+                raise FfActionError(
+                    "", "'args.accept' must be a boolean when provided")
+            if action_arg is not None and action_arg not in ("accept", "dismiss"):
+                raise FfActionError(
+                    "", "'args.action' must be 'accept' or 'dismiss' "
+                    "when provided")
+            accept = True
+            if action_arg == "dismiss":
+                accept = False
+            if accept_arg is not None:
+                accept = accept_arg
+            prompt_text = args.get("promptText")
+            if prompt_text is not None and not isinstance(prompt_text, str):
+                raise FfActionError(
+                    "", "'args.promptText' must be a string when provided")
+            timeout_ms = args.get("timeoutMs")
+            if timeout_ms is None:
+                timeout_ms = DIALOG_WAIT_MS
+            elif (not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool)
+                  or timeout_ms <= 0 or timeout_ms > DIALOG_WAIT_MAX):
+                raise FfActionError(
+                    "", "'args.timeoutMs' must be a positive integer <= "
+                    f"{DIALOG_WAIT_MAX}")
+            ctx = self._resolve_context(args, tops)
+            dlg = self._wait_dialog(ctx, timeout_ms)
+            if dlg is None:
+                raise FfActionError(
+                    "", f"no JavaScript dialog is showing within "
+                    f"{timeout_ms}ms")
+            user_text = prompt_text
+            if (accept and user_text is None
+                    and dlg.get("type") == "prompt"
+                    and dlg.get("defaultValue")):
+                # Firefox handleUserPrompt WITHOUT userText makes prompt()
+                # return "" (verified); Chrome keeps the dialog default.
+                # Filling the default in keeps both backends aligned.
+                user_text = dlg["defaultValue"]
+            params: dict = {"context": ctx, "accept": accept}
+            if user_text is not None:
+                params["userText"] = user_text
+            self.ff.command("browsingContext.handleUserPrompt", params)
+            with self.ff._ev_lock:
+                cur = self.ff.pending_dialog
+                if cur is not None and cur.get("context") == ctx:
+                    self.ff.pending_dialog = None
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True,
+                "dialog": {"type": dlg["type"],
+                           "message": dlg.get("message") or "",
+                           "defaultPrompt": dlg.get("defaultValue") or ""},
+                "accept": accept,
+                "promptText": prompt_text}}}
+
+        if action == "handle_file_chooser":
+            file_arg = args.get("file")
+            if not isinstance(file_arg, str) or not file_arg.strip():
+                raise FfActionError(
+                    "", "'args.file' (absolute local path string) is required")
+            # Firefox BiDi exposes NO native file-chooser interception (no
+            # fileChooserOpened event class, no chooser answering command;
+            # verified live: clicking a file input opens the OS dialog which
+            # the remote agent cannot see, block or dismiss).  Explicit
+            # platform error per the P2 task contract -- upload
+            # (input.setFiles) is the supported path on this backend.
+            raise FfActionError(
+                "", "native file chooser interception is not supported on "
+                "the firefox backend (no BiDi file-chooser mechanism); use "
+                "the upload action (input.setFiles) instead")
+
+        if action == "list_network_requests":
+            limit = args.get("limit")
+            if limit is not None and (not isinstance(limit, int)
+                                      or isinstance(limit, bool) or limit <= 0):
+                raise FfActionError(
+                    "", "'args.limit' must be a positive integer when provided")
+            with self.ff._ev_lock:
+                reqs = [dict(x) for x in
+                        self.ff.net_events[-(limit or EVENT_CAP):]]
+            reqs.reverse()                       # newest first (Chrome)
+            return 200, {"status": "ok", "data": {"value": {
+                "requests": reqs}}}
+
+        if action == "get_network_request":
+            rid = args.get("requestId")
+            if not isinstance(rid, str) or not rid.strip():
+                raise FfActionError(
+                    "", "'args.requestId' (string) is required -- see "
+                    "list_network_requests")
+            with self.ff._ev_lock:
+                rec = next((x for x in self.ff.net_events
+                            if x.get("requestId") == rid), None)
+            rec_out = dict(rec) if rec else None
+            return 200, {"status": "ok", "data": {"value": {
+                "found": rec_out is not None, "request": rec_out}}}
+
+        if action == "list_console_messages":
+            limit = args.get("limit")
+            if limit is not None and (not isinstance(limit, int)
+                                      or isinstance(limit, bool) or limit <= 0):
+                raise FfActionError(
+                    "", "'args.limit' must be a positive integer when provided")
+            with self.ff._ev_lock:
+                msgs = [dict(x) for x in
+                        self.ff.console_events[-(limit or EVENT_CAP):]]
+            msgs.reverse()                       # newest first (Chrome)
+            return 200, {"status": "ok", "data": {"value": {
+                "messages": msgs}}}
 
 
 # ---------------------------------------------------------------------------
@@ -1528,7 +2027,7 @@ BRIDGE = None           # assigned in main() before serve_forever
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, BRIDGE
+    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, BRIDGE, HUMANIZE
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s")
     parser = argparse.ArgumentParser(
@@ -1546,11 +2045,16 @@ def main() -> None:
     parser.add_argument("--audit", metavar="PATH",
                         help="append JSONL audit lines {ts,action,who,detail} "
                              "to PATH (info-logging is always on)")
+    parser.add_argument("--humanize", action="store_true",
+                        help="daemon-wide humanize pacing for input actions "
+                             "(click/fill/type_text/send_key/mouse_click)")
     opts = parser.parse_args()
     if opts.allow_no_auth:
         AUTH_REQUIRED = False
     if opts.audit:
         AUDIT_PATH = opts.audit
+    if opts.humanize:
+        HUMANIZE = True
     AUTH_TOKEN = load_auth_token()
     # Fix 2: build the BiDi client + Bridge here, after --ff-port has been
     # parsed, so opts.ff_port (default 9222) actually reaches FfBiDi.
@@ -1581,6 +2085,8 @@ def main() -> None:
         print("         (0600; the token value is never printed to the terminal)")
     if AUDIT_PATH:
         print(f"  AUDIT: JSONL -> {AUDIT_PATH}")
+    if HUMANIZE:
+        print("  MODE  : humanize pacing ON (daemon-wide)")
     print("  Open Firefox first with  ff-launch.bat  (real profile, port "
           f"{opts.ff_port}).")
     print("  Then evaluate:  curl -X POST "

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ff-p2-test-page</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2em; color: #222; }
+  .row { margin: .8em 0; }
+  .lbl { display: inline-block; min-width: 11em; vertical-align: top; }
+  #p2ce { border: 1px solid #999; min-height: 2em; padding: 2px; width: 30em; }
+  .out { color: #06a; margin-left: .6em; }
+</style>
+</head>
+<body>
+<h1>Webflow Bridge for Firefox — P2 test page</h1>
+
+<div class="row">
+  <span class="lbl">snap target btn</span>
+  <button id="p2btn" type="button">snap target btn</button>
+  <span id="btnlabel" class="out">(not clicked)</span>
+</div>
+
+<div class="row"><span class="lbl">alert / confirm / prompt</span>
+  <button id="btn-alert" type="button">trigger alert</button>
+  <button id="btn-confirm" type="button">trigger confirm</button>
+  <button id="btn-prompt" type="button">trigger prompt</button>
+  <span id="dlglog" class="out">(no dialog yet)</span>
+</div>
+
+<div class="row"><span class="lbl">console</span>
+  <button id="btn-conlog" type="button">console.log</button>
+  <button id="btn-conerr" type="button">console.error</button>
+</div>
+
+<div class="row"><span class="lbl">fetch local</span>
+  <button id="btn-fetch" type="button">fetch p2_data.txt</button>
+  <span id="fetchlog" class="out">(no fetch)</span>
+</div>
+
+<div class="row">
+  <span class="lbl">text input</span>
+  <input id="p2text" type="text" size="40" placeholder="snap input">
+</div>
+
+<div class="row">
+  <span class="lbl">textarea</span>
+  <textarea id="p2ta" rows="2" cols="30"></textarea>
+</div>
+
+<div class="row">
+  <span class="lbl">contenteditable</span>
+  <div id="p2ce" contenteditable="true"></div>
+</div>
+
+<div class="row">
+  <span class="lbl">select</span>
+  <select id="p2sel">
+    <option value="alpha">Alpha</option>
+    <option value="beta">Beta</option>
+    <option value="gamma">Gamma</option>
+  </select>
+</div>
+
+<div class="row">
+  <span class="lbl">checkbox / radio</span>
+  <input id="p2check" type="checkbox"> <label for="p2check">check me</label>
+  <input id="p2radio" type="radio" name="g"> <label for="p2radio">radio me</label>
+</div>
+
+<div class="row">
+  <span class="lbl">role button</span>
+  <div id="p2role" role="button" tabindex="0">role button div</div>
+</div>
+
+<div class="row">
+  <span class="lbl">link</span>
+  <a id="p2link" href="#target">p2 jump link</a>
+</div>
+
+<div class="row">
+  <span class="lbl">file input</span>
+  <input id="p2file" type="file">
+</div>
+
+<div class="row">
+  <span class="lbl">pixel</span>
+  <img id="p2pix" src="p2_pixel.png" alt="p2 pixel">
+</div>
+
+<div id="target">target zone</div>
+
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+
+  $('p2btn').addEventListener('click', function () {
+    var c = +($('p2btn').dataset.c || 0) + 1;
+    $('p2btn').dataset.c = c;
+    $('btnlabel').textContent = 'clicked ' + c + 'x';
+  });
+
+  $('btn-alert').addEventListener('click', function () {
+    alert('p2-alert-message');
+    $('dlglog').textContent = 'alert-accepted';
+  });
+  $('btn-confirm').addEventListener('click', function () {
+    var r = confirm('p2-confirm-message');
+    $('dlglog').textContent = 'confirm=' + r;
+  });
+  $('btn-prompt').addEventListener('click', function () {
+    var r = prompt('p2-prompt-message', '');
+    $('dlglog').textContent = 'prompt=' + r;
+  });
+
+  $('btn-conlog').addEventListener('click', function () {
+    console.log('p2-console-marker', 'second-arg');
+  });
+  $('btn-conerr').addEventListener('click', function () {
+    console.error('p2-error-marker');
+  });
+
+  $('btn-fetch').addEventListener('click', function () {
+    fetch('p2_data.txt').then(function (r) { return r.text(); })
+      .then(function (t) { $('fetchlog').textContent = 'fetched:' + t.trim(); })
+      .catch(function (e) { $('fetchlog').textContent = 'fetch-error'; });
+  });
+
+  $('p2file').addEventListener('change', function () {
+    $('fetchlog').textContent = 'file=' +
+      ($('p2file').files && $('p2file').files[0] ? $('p2file').files[0].name : 'none');
+  });
+})();
+</script>
+</body>
+</html>
