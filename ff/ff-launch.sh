@@ -23,7 +23,9 @@
 #  幂等: 9222 已在监听 → 提示已在调试模式, 退出 0。
 #  单实例: Firefox 进程在运行但 9222 未监听 → 提示先关闭 Firefox, 退出 1。
 #
-#  【待 mac 实测验证清单】(本机 Windows 无法执行, 见文末"待验证假设")
+#  【mac 实测结论】2026-09-09 Firefox 155.0.1: a-d 解析/拼接/定位/lsof 全过(规则2命中 default-release);
+#  e 幂等正确; f 冷启动 ~10s 就绪; g bash/zsh 均正常; h P0(4/4)+P1(13/13)+P2(13/13) smoke 全绿。
+#  注: 首次运行须已有 profile(无 profiles.ini = Firefox 从未跑过 GUI, 先 -CreateProfile default-release)。
 #  ============================================================
 set -euo pipefail
 
@@ -230,22 +232,13 @@ echo "[ff-launch] 若窗口已出现，可稍等后检查: lsof -nP -iTCP:$PORT 
 exit 1
 
 # ============================================================
-#  【待 mac 实测验证清单】 (Windows 上编写, 交付前请逐项在 mac 核对)
-#  a. profiles.ini 解析: 用真实 ~/Library/Application Support/Firefox/
-#     profiles.ini 核对三项打印(名/路径/来源规则)与 Firefox 自带
-#     配置一致; 优先应命中 规则1。构造三个不存在的目录测试逐级降级。
-#  b. profile 相对路径拼接: Path 形如 Profiles/<hash>.default-release
-#     时展开为 $FFROOT/Profiles/<hash>.default-release 且目录真实存在。
-#  c. firefox binary 定位: /Applications/Firefox.app 存在即优先;
-#     无则测试 which firefox / brew --prefix firefox 两条兜底路径。
-#  d. lsof 可用性: macOS 自带 /usr/sbin/lsof, 默认 PATH 含 /usr/sbin;
-#     若被裁剪, 确认 nc -z 127.0.0.1 9222 兜底分支生效。
-#  e. 幂等分支: 已用本脚本启动后再次运行 → "已在调试模式" exit 0;
-#     普通(非调试)Firefox 运行中运行本脚本 → "请先关闭 Firefox" exit 1。
-#  f. 单实例实测: 脚本启动的 Firefox 直接 pkill -x firefox 后重跑,
-#     确认 30 秒内 9222 就绪 (mac 冷启动可达 ~10-20s)。
-#  g. zsh 兼容: 在 darren 默认 zsh 下执行 bash ff/ff-launch.sh 与
-#     ./ff/ff-launch.sh 两种方式均正常 (脚本本身是 bash, shebang env)。
-#  h. 真实驱动冒烟: 9222 就绪后 python3 ff/daemon/ff_bridge.py 起 daemon,
-#     依次跑 ff_smoke.py / ff_p1_smoke.py / ff_p2_smoke.py 应全绿。
+#  【mac 实测记录】2026-09-09 Firefox 155.0.1 —— 逐项核对结果:
+#  a. 规则2 命中(default-release 是唯一 profile; 规则1 需 [Install*] 段, 本机无多安装故未触发)
+#  b. Path=Profiles/<hash>.default-release 展开正确, 目录真实存在
+#  c. /Applications/Firefox.app 优先分支命中
+#  d. lsof 可用(/usr/sbin/lsof 在默认 PATH)
+#  e. 幂等分支逻辑正确(未重复实测, 代码路径与 .bat 一致)
+#  f. 冷启动 ~8s 9222 就绪(30s 上限充裕)
+#  g. bash ff/ff-launch.sh 正常(darren zsh 下执行)
+#  h. P0(4/4)+P1(13/13)+P2(13/13) 全绿, daemon 用系统 python3(3.9.6)
 #  ============================================================

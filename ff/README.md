@@ -20,7 +20,7 @@ Firefox 变体（独立版）：同一套 `POST /command` 协议与动作契约�
 | OS | 启动器 | 状态 |
 |---|---|---|
 | Windows 11 | `ff/ff-launch.bat` | **实测全绿**：P0+P1+P2 smoke（09-08，Firefox 155） |
-| macOS | `ff/ff-launch.sh` | 脚本就绪（09-08），**待 mac 实测**（见脚本内待验证清单） |
+| macOS | `ff/ff-launch.sh` | **实测全绿**：P0(4/4)+P1(13/13)+P2(13/13) smoke（09-09，Firefox 155.0.1）；见脚本内实测记录 |
 
 ## 安装三步
 
@@ -37,6 +37,10 @@ macOS:
 ```bash
 chmod +x ff/ff-launch.sh && ff/ff-launch.sh
 ```
+
+> macOS 首次使用：若 `~/Library/Application Support/Firefox/profiles.ini` 不存在
+> （Firefox 从未跑过 GUI），先建 profile：
+> `/Applications/Firefox.app/Contents/MacOS/firefox -CreateProfile default-release`
 
 启动器读取 profiles.ini（Windows `%APPDATA%\Mozilla\Firefox\profiles.ini`；
 macOS `~/Library/Application Support/Firefox/profiles.ini`），按规则选择 profile：
