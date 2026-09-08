@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ff-p1-test-page</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2em; color: #222; }
+  .row { margin: 1em 0; }
+  .lbl { display: inline-block; min-width: 12em; vertical-align: top; }
+  #ta, #ce { width: 30em; }
+  #ce { border: 1px solid #999; min-height: 2em; padding: 2px; }
+  .out { color: #0a6; margin-left: .6em; }
+</style>
+</head>
+<body>
+<h1>Webflow Bridge for Firefox — P1 test page</h1>
+
+<div class="row">
+  <span class="lbl">button</span>
+  <button id="btn" type="button" data-c="0">click me</button>
+  <span id="btnlabel" class="out">(not clicked)</span>
+</div>
+
+<div class="row">
+  <span class="lbl">text input</span>
+  <input id="text" type="text" size="40">
+  <span id="enterlog" class="out">(no enter)</span>
+</div>
+
+<div class="row">
+  <span class="lbl">textarea</span>
+  <textarea id="ta" rows="4" cols="40"></textarea>
+</div>
+
+<div class="row">
+  <span class="lbl">contenteditable</span>
+  <div id="ce" contenteditable="true"></div>
+</div>
+
+<div class="row">
+  <span class="lbl">select</span>
+  <select id="sel">
+    <option value="alpha">Alpha</option>
+    <option value="beta">Beta</option>
+    <option value="gamma">Gamma</option>
+  </select>
+</div>
+
+<div class="row">
+  <span class="lbl">file input</span>
+  <input id="file" type="file">
+  <span id="filename" class="out">(none)</span>
+</div>
+
+<div class="row">
+  <span class="lbl">link</span>
+  <a id="link" href="#target">jump to #target</a>
+</div>
+
+<div id="target">target zone</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('btn');
+  btn.addEventListener('click', function () {
+    var c = +(btn.dataset.c || 0) + 1;
+    btn.dataset.c = c;
+    document.getElementById('btnlabel').textContent = 'clicked ' + c + 'x';
+  });
+
+  var text = document.getElementById('text');
+  text.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      document.getElementById('enterlog').textContent = 'Enter seen';
+    }
+  });
+
+  var file = document.getElementById('file');
+  file.addEventListener('change', function () {
+    document.getElementById('filename').textContent =
+      file.files && file.files.length ? file.files[0].name : '(none)';
+  });
+})();
+</script>
+</body>
+</html>

@@ -618,6 +618,243 @@ def _unwrap_remote(rv):
 
 
 # ---------------------------------------------------------------------------
+# P1 primitives -- BiDi building blocks shared by the P1 actions below.
+# All JS snippets are built with json.dumps() so caller strings can never
+# break out of the expression.  Behaviour notes verified live on Firefox
+# 155.0.1 (see .pi_ff_p1_task.txt report section 1):
+#   - node RemoteValues carry sharedId even under resultOwnership "none"
+#   - pointer move origin must be the STRING "viewport" (the object form
+#     {"type":"viewport"} is rejected with "invalid argument"); element
+#     origins DO take the object form {"type":"element","element":{...}}
+#   - performActions does not auto-scroll: an off-viewport target answers
+#     "move target out of bounds", so every locate scrolls first
+#   - setFiles needs a native Windows backslash path (a forward-slash path
+#     fails with NS_ERROR_FILE_UNRECOGNIZED_PATH)
+# ---------------------------------------------------------------------------
+
+P1_KEY_MAP = {
+    "Enter": "\uE007", "Tab": "\uE004", "Escape": "\uE00C",
+    "Backspace": "\uE003", "Delete": "\uE017",
+    "ArrowUp": "\uE013", "ArrowDown": "\uE015",
+    "ArrowLeft": "\uE012", "ArrowRight": "\uE014",
+    "Home": "\uE011", "End": "\uE010",
+    "PageUp": "\uE00E", "PageDown": "\uE00F",
+    "Space": " ",
+}
+P1_MOD_MAP = {"alt": "\uE00A", "ctrl": "\uE009",
+              "meta": "\uE03D", "shift": "\uE008"}
+
+
+def _p1_sel(args: dict) -> str:
+    """Validate + return the required CSS selector.  Snapshot @refs are a
+    P2 concept on this backend and answer an explicit error."""
+    sel = args.get("selector")
+    if not isinstance(sel, str) or not sel.strip():
+        raise FfActionError("", "'args.selector' (CSS string) is required")
+    if sel.startswith("@"):
+        raise FfActionError(
+            "", "snapshot refs not available on firefox backend until P2; "
+            "use a CSS selector")
+    return sel
+
+
+def _p1_js(ff, ctx: str, code: str, timeout: float = EVAL_TIMEOUT) -> dict:
+    """script.evaluate -> the raw success result; JS exceptions surface as
+    the standard FfActionError the evaluate action uses."""
+    res = ff.command("script.evaluate",
+                     {"expression": code, "target": {"context": ctx},
+                      "awaitPromise": True, "resultOwnership": "none"},
+                     timeout=timeout)
+    if res.get("type") == "exception":
+        det = res.get("exceptionDetails") or {}
+        exc = det.get("exception") or {}
+        msg = (det.get("text") or exc.get("description")
+               or exc.get("message") or "script evaluation threw")
+        raise FfActionError("javascript error", msg)
+    return res.get("result") or {}
+
+
+def _p1_eval(ff, ctx: str, code: str):
+    """Evaluate JS -> unwrapped value."""
+    return _unwrap_remote(_p1_js(ff, ctx, code))
+
+
+def _p1_eval_json(ff, ctx: str, expr: str):
+    """Evaluate an expression returning an OBJECT -> python dict via a
+    JSON.stringify round trip (Firefox serialises objects as key-value
+    pairs otherwise)."""
+    raw = _p1_eval(ff, ctx, "JSON.stringify(" + expr + ")")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
+
+
+def _p1_find_geo(ff, ctx: str, selector: str) -> dict:
+    """Scroll the first match into view, read its center + tag + text."""
+    expr = ("(()=>{const el=document.querySelector(%s);"
+            "if(!el)return{found:false};"
+            "el.scrollIntoView({block:'center'});"
+            "const r=el.getBoundingClientRect();"
+            "return{found:true,x:Math.round(r.x+r.width/2),"
+            "y:Math.round(r.y+r.height/2),"
+            "tag:(el.tagName||'').toLowerCase(),"
+            "text:(el.innerText||el.textContent||'').trim().slice(0,500)};})()"
+            % json.dumps(selector))
+    out = _p1_eval_json(ff, ctx, expr) or {}
+    return out
+
+
+def _p1_find_shared(ff, ctx: str, selector: str):
+    """Scroll the first match into view, return its BiDi sharedId (None
+    when the element is missing)."""
+    expr = ("(()=>{const el=document.querySelector(%s);"
+            "if(!el)return null;"
+            "el.scrollIntoView({block:'center'});return el;})()"
+            % json.dumps(selector))
+    rv = _p1_js(ff, ctx, expr)
+    # _p1_js() already returns the RemoteValue: a node result is a
+    # SharedReference carrying sharedId.
+    if isinstance(rv, dict) and rv.get("type") == "node":
+        return rv.get("sharedId")
+    return None
+
+
+def _p1_probe_el(ff, ctx: str, selector: str) -> dict:
+    """Read tag/type/contenteditable-ness of the first match (no scroll)."""
+    expr = ("(()=>{const el=document.querySelector(%s);"
+            "if(!el)return{found:false};"
+            "return{found:true,tag:(el.tagName||'').toLowerCase(),"
+            "type:(el.type||'').toLowerCase(),"
+            "isCE:el.isContentEditable===true};})()"
+            % json.dumps(selector))
+    out = _p1_eval_json(ff, ctx, expr) or {}
+    return out
+
+
+def _p1_pointer_click(ff, ctx: str, x, y) -> None:
+    """Real left-button click at viewport CSS-pixel coordinates."""
+    ff.command("input.performActions", {
+        "context": ctx,
+        "actions": [{
+            "type": "pointer", "id": "mouse",
+            "parameters": {"pointerType": "mouse"},
+            "actions": [
+                {"type": "pointerMove", "duration": 0, "x": int(x),
+                 "y": int(y), "origin": "viewport"},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pointerUp", "button": 0}]}]})
+
+
+def _p1_key_seq(ff, ctx: str, values) -> None:
+    """Type a sequence of single code points as real key down/up events."""
+    acts = []
+    for v in values:
+        acts.append({"type": "keyDown", "value": v})
+        acts.append({"type": "keyUp", "value": v})
+    ff.command("input.performActions", {
+        "context": ctx, "actions": [{"type": "key", "id": "kb",
+                                     "actions": acts}]})
+
+
+def _p1_chord(ff, ctx: str, mods, key) -> None:
+    """One key (optional) with modifiers held: mods down, key down+up, mods
+    up (mods are single-code-point WebDriver key values)."""
+    acts = []
+    for m in mods:
+        acts.append({"type": "keyDown", "value": m})
+    if key is not None:
+        acts.append({"type": "keyDown", "value": key})
+        acts.append({"type": "keyUp", "value": key})
+    for m in reversed(mods):
+        acts.append({"type": "keyUp", "value": m})
+    ff.command("input.performActions", {
+        "context": ctx, "actions": [{"type": "key", "id": "kb",
+                                     "actions": acts}]})
+
+
+def _p1_focused_kind(ff, ctx: str) -> str:
+    """Classify the page's active element: 'ce' | 'textarea' | 'input' |
+    'other' (drives how type_text renders newlines)."""
+    out = _p1_eval_json(ff, ctx,
+                        "(()=>{const el=document.activeElement;"
+                        "if(!el)return{tag:''};"
+                        "return{tag:(el.tagName||'').toLowerCase(),"
+                        "isCE:el.isContentEditable===true,"
+                        "type:(el.type||'').toLowerCase()};})()") or {}
+    if out.get("isCE"):
+        return "ce"
+    if out.get("tag") == "textarea":
+        return "textarea"
+    if out.get("tag") == "input":
+        return "input"
+    return "other"
+
+
+def _p1_type_text(ff, ctx: str, text: str, kind: str) -> None:
+    """Type text as real key events into the CURRENTLY focused element.
+    kind 'ce' renders newlines with the literal "\\n" key (Firefox inserts a
+    <br>, the contenteditable newline), 'textarea' renders them with the
+    Enter key \\uE007 (a real text newline); single-line inputs drop
+    newlines.  Contenteditable typing was verified to need a real pointer
+    click first (execCommand('insertText') answers false without it and
+    CDP Input.insertText does not exist on this backend)."""
+    nl = {"ce": "\n", "textarea": "\uE007"}.get(kind)
+    seq = []
+    for ch in text:
+        if ch == "\r":
+            continue
+        if ch == "\n":
+            if nl is None:
+                continue
+            seq.append(nl)
+        else:
+            seq.append(ch)
+    if seq:
+        _p1_key_seq(ff, ctx, seq)
+
+
+def _p1_viewport_size(ff, ctx: str) -> tuple:
+    out = _p1_eval_json(ff, ctx,
+                        "(()=>({w:document.documentElement.clientWidth||0,"
+                        "h:document.documentElement.clientHeight||0}))()") \
+        or {}
+    return out.get("w") or 0, out.get("h") or 0
+
+
+def _img_size(raw: bytes):
+    """(width, height) from a PNG/JPEG header with stdlib struct, or None."""
+    try:
+        if raw[:8] == b"\x89PNG\r\n\x1a\n" and len(raw) >= 24:
+            import struct as _st
+            return _st.unpack(">II", raw[16:24])
+        if raw[:2] == b"\xff\xd8" and len(raw) > 16:
+            import struct as _st
+            i = 2
+            while i + 9 < len(raw):
+                if raw[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = raw[i + 1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                    i += 2
+                    continue
+                if marker == 0xD9 or marker == 0xDA:
+                    break
+                seg = _st.unpack(">H", raw[i + 2:i + 4])[0]
+                if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8,
+                                                             0xCC):
+                    h, w = _st.unpack(">HH", raw[i + 5:i + 9])
+                    return w, h
+                i += 2 + seg
+    except Exception:                               # noqa: BLE001
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
 # HTTP command dispatch
 # ---------------------------------------------------------------------------
 
@@ -630,6 +867,9 @@ def _audit_detail(action: str, args: dict) -> str:
     url = args.get("url")
     if isinstance(url, str) and url:
         parts.append("url=" + url)
+    sel = args.get("selector")
+    if isinstance(sel, str) and sel:
+        parts.append("selector=" + sel)
     if action == "cdp":
         return " ".join(parts)
     return " ".join(parts)
@@ -706,6 +946,24 @@ class Bridge:
             return tops[tab]["context"]
         if not tops:
             raise FfActionError("", "no top-level browsing contexts")
+        # No explicit context/tabId: default to the ACTIVE (visible)
+        # top-level context, mirroring the Chrome edition's "default
+        # active tab" semantics.  visibilityState is probed per
+        # candidate; any failure degrades to tops[0] (P0 behaviour).
+        for cand in tops:
+            try:
+                rv = _unwrap_remote((self.ff.command(
+                    "script.evaluate",
+                    {"expression":
+                     "document.visibilityState === 'visible'",
+                     "target": {"context": cand["context"]},
+                     "awaitPromise": True,
+                     "resultOwnership": "none"},
+                    timeout=QUICK_TIMEOUT).get("result") or {}))
+                if rv is True:
+                    return cand["context"]
+            except Exception:                       # noqa: BLE001
+                continue
         return tops[0]["context"]
 
     # -------- probe --------------------------------------------------------
@@ -768,7 +1026,10 @@ class Bridge:
         if action == "probe":
             return 200, {"status": "ok", "data": {"value": self._probe()}}
         if action not in {"evaluate", "navigate", "tabs_list", "tabs_open",
-                          "tabs_close", "tabs_activate", "find_tab"}:
+                          "tabs_close", "tabs_activate", "find_tab",
+                          "click", "fill", "type_text", "send_key",
+                          "mouse_click", "screenshot", "save_as_pdf",
+                          "upload"}:
             raise FfActionError("", f"unknown action: {action}")
 
         # --- every remaining action refreshes the context list first -------
@@ -924,6 +1185,272 @@ class Bridge:
                 "value": {"success": True,
                           "url": found.get("url", "") or "",
                           "tabId": ctx}}}
+
+        # -------- P1 actions (real input + capture; contract per docs) ----
+
+        if action == "click":
+            sel = _p1_sel(args)
+            ctx = self._resolve_context(args, tops)
+            geo = _p1_find_geo(self.ff, ctx, sel)
+            if not geo.get("found"):
+                raise FfActionError("", f"no element matches selector {sel}")
+            _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True,
+                "tag": geo.get("tag") or "",
+                "text": geo.get("text") or ""}}}
+
+        if action == "fill":
+            sel = _p1_sel(args)
+            value = args.get("value")
+            if not isinstance(value, str):
+                raise FfActionError("", "'args.value' (string) is required")
+            mode = args.get("mode", "auto")
+            if mode not in ("auto", "value", "contenteditable"):
+                raise FfActionError(
+                    "", "'args.mode' must be 'auto', 'value' or "
+                    "'contenteditable'")
+            ctx = self._resolve_context(args, tops)
+            el = _p1_probe_el(self.ff, ctx, sel)
+            if not el.get("found"):
+                raise FfActionError("", f"no element matches selector {sel}")
+            tag = el.get("tag") or ""
+            # --- contenteditable path: real click + Ctrl+A + typed text ---
+            if mode == "contenteditable" or (mode == "auto"
+                                             and el.get("isCE")):
+                if not el.get("isCE"):
+                    raise FfActionError(
+                        "", f"fill mode '{mode}' needs a contenteditable "
+                        f"element; {sel} is <{tag}>")
+                geo = _p1_find_geo(self.ff, ctx, sel)
+                if not geo.get("found"):
+                    raise FfActionError("",
+                                        f"no element matches selector {sel}")
+                _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
+                _p1_chord(self.ff, ctx, ["\uE009"], "a")     # select all
+                _p1_chord(self.ff, ctx, [], "\uE003")        # clear
+                _p1_type_text(self.ff, ctx, value, "ce")
+                return 200, {"status": "ok", "data": {"value": {
+                    "success": True, "tag": tag,
+                    "mode": "contenteditable"}}}
+            # --- value path: native setter + input/change (React-safe) ---
+            if tag not in ("input", "textarea", "select"):
+                raise FfActionError(
+                    "", f"fill mode '{mode}' targets form fields only; "
+                    f"{sel} is <{tag}> (contenteditable text uses mode "
+                    f"'contenteditable')")
+            if el.get("type") == "file":
+                raise FfActionError(
+                    "", "cannot fill an <input type=file>; use the "
+                    "upload action")
+            proto = {"textarea": "HTMLTextAreaElement",
+                     "select": "HTMLSelectElement"}.get(tag,
+                                                        "HTMLInputElement")
+            out = _p1_eval_json(self.ff, ctx,
+                                "(()=>{const el=document.querySelector(%s);"
+                                "const setter=Object.getOwnPropertyDescriptor("
+                                "%s.prototype,'value').set;"
+                                "setter.call(el,%s);"
+                                "el.dispatchEvent(new Event('input',"
+                                "{bubbles:true}));"
+                                "el.dispatchEvent(new Event('change',"
+                                "{bubbles:true}));"
+                                "return{ok:true,value:el.value};})()"
+                                % (json.dumps(sel), proto,
+                                   json.dumps(value)))
+            if not (out or {}).get("ok"):
+                raise FfActionError("", f"fill failed on {sel}")
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "tag": tag, "mode": "value"}}}
+
+        if action == "type_text":
+            text = args.get("text")
+            if not isinstance(text, str):
+                raise FfActionError("", "'args.text' (string) is required")
+            ctx = self._resolve_context(args, tops)
+            sel = args.get("selector")
+            if sel is not None:
+                if not isinstance(sel, str) or not sel.strip():
+                    raise FfActionError(
+                        "", "'args.selector' must be a string")
+                if sel.startswith("@"):
+                    raise FfActionError(
+                        "", "snapshot refs not available on firefox backend "
+                        "until P2; use a CSS selector")
+                geo = _p1_find_geo(self.ff, ctx, sel)
+                if not geo.get("found"):
+                    raise FfActionError(
+                        "", f"no element matches selector {sel}")
+                _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
+            kind = _p1_focused_kind(self.ff, ctx)
+            _p1_type_text(self.ff, ctx, text, kind)
+            # len mirrors the Chrome edition's JS .length (UTF-16 units).
+            n = sum(2 if ord(c) > 0xFFFF else 1 for c in text)
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "len": n}}}
+
+        if action == "send_key":
+            key = args.get("key")
+            if not isinstance(key, str) or not key:
+                raise FfActionError("", "'args.key' (string) is required")
+            if key in P1_KEY_MAP:
+                value = P1_KEY_MAP[key]
+            elif len(key) == 1 and key.isalnum():
+                value = key
+            else:
+                raise FfActionError(
+                    "", f"unsupported key {key!r}: supported keys are "
+                    "Enter/Tab/Escape/Backspace/Delete/ArrowUp/ArrowDown/"
+                    "ArrowLeft/ArrowRight/Home/End/PageUp/PageDown/Space "
+                    "or a single a-z/0-9")
+            mods_raw = args.get("modifiers") or []
+            if not isinstance(mods_raw, list):
+                raise FfActionError(
+                    "", "'args.modifiers' must be an array of strings")
+            mods = []
+            for m in mods_raw:
+                if not isinstance(m, str) or m not in P1_MOD_MAP:
+                    raise FfActionError(
+                        "", f"unsupported modifier {m!r}: use alt/ctrl/"
+                        "meta/shift")
+                mods.append(P1_MOD_MAP[m])
+            ctx = self._resolve_context(args, tops)
+            sel = args.get("selector")
+            if sel is not None:
+                if not isinstance(sel, str) or not sel.strip():
+                    raise FfActionError(
+                        "", "'args.selector' must be a string")
+                if sel.startswith("@"):
+                    raise FfActionError(
+                        "", "snapshot refs not available on firefox backend "
+                        "until P2; use a CSS selector")
+                geo = _p1_find_geo(self.ff, ctx, sel)
+                if not geo.get("found"):
+                    raise FfActionError(
+                        "", f"no element matches selector {sel}")
+                _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
+            _p1_chord(self.ff, ctx, mods, value)
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "key": key}}}
+
+        if action == "mouse_click":
+            ctx = self._resolve_context(args, tops)
+            sel = args.get("selector")
+            if sel is not None:
+                if not isinstance(sel, str) or not sel.strip():
+                    raise FfActionError(
+                        "", "'args.selector' must be a string")
+                if sel.startswith("@"):
+                    raise FfActionError(
+                        "", "snapshot refs not available on firefox backend "
+                        "until P2; use a CSS selector")
+                geo = _p1_find_geo(self.ff, ctx, sel)
+                if not geo.get("found"):
+                    raise FfActionError(
+                        "", f"no element matches selector {sel}")
+                x, y = geo["x"], geo["y"]
+            else:
+                x, y = args.get("x"), args.get("y")
+                if (not isinstance(x, int) or isinstance(x, bool)
+                        or not isinstance(y, int) or isinstance(y, bool)):
+                    raise FfActionError(
+                        "", "provide 'selector' or integer 'x'/'y' "
+                        "(viewport CSS pixels)")
+            _p1_pointer_click(self.ff, ctx, x, y)
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "x": x, "y": y}}}
+
+        if action == "screenshot":
+            fmt = args.get("format", "png")
+            if fmt not in ("png", "jpeg"):
+                raise FfActionError(
+                    "", "'args.format' must be 'png' or 'jpeg'")
+            quality = args.get("quality")
+            if quality is not None and (not isinstance(quality, int)
+                                        or isinstance(quality, bool)
+                                        or not 0 <= quality <= 100):
+                raise FfActionError(
+                    "", "'args.quality' must be an integer 0-100 "
+                    "(jpeg only)")
+            ctx = self._resolve_context(args, tops)
+            sel = args.get("selector")
+            if sel is not None:
+                if not isinstance(sel, str) or not sel.strip():
+                    raise FfActionError(
+                        "", "'args.selector' must be a string")
+                if sel.startswith("@"):
+                    raise FfActionError(
+                        "", "snapshot refs not available on firefox backend "
+                        "until P2; use a CSS selector")
+                sid = _p1_find_shared(self.ff, ctx, sel)
+                if sid is None:
+                    raise FfActionError(
+                        "", f"no element matches selector {sel}")
+                params = {"context": ctx,
+                          "clip": {"type": "element",
+                                   "element": {"sharedId": sid}}}
+            elif args.get("fullPage") is True:
+                params = {"context": ctx, "origin": "document"}
+            else:
+                params = {"context": ctx}
+            if fmt == "png":
+                params["format"] = {"type": "image/png"}
+            elif quality is None:
+                params["format"] = {"type": "image/jpeg"}
+            else:
+                params["format"] = {"type": "image/jpeg",
+                                    "quality": quality / 100.0}
+            res = self.ff.command("browsingContext.captureScreenshot",
+                                  params)
+            data = (res or {}).get("data")
+            if not isinstance(data, str) or not data:
+                raise FfActionError("", "screenshot returned no image data")
+            w, h = _img_size(base64.b64decode(data))
+            if w is None:
+                w, h = _p1_viewport_size(self.ff, ctx)   # CSS-size fallback
+            return 200, {"status": "ok", "data": {"value": {
+                "base64": data,
+                "mime": "image/png" if fmt == "png" else "image/jpeg",
+                "width": w, "height": h}}}
+
+        if action == "save_as_pdf":
+            ctx = self._resolve_context(args, tops)
+            res = self.ff.command("browsingContext.print",
+                                  {"context": ctx, "background": True})
+            data = (res or {}).get("data")
+            if not isinstance(data, str) or not data:
+                raise FfActionError("", "print returned no PDF data")
+            return 200, {"status": "ok", "data": {"value": {
+                "base64": data, "mime": "application/pdf"}}}
+
+        if action == "upload":
+            sel = _p1_sel(args)
+            file_arg = args.get("file")
+            if not isinstance(file_arg, str) or not file_arg.strip():
+                raise FfActionError(
+                    "", "'args.file' (absolute local path) is required")
+            # Firefox's input.setFiles rejects non-native (forward-slash)
+            # paths on Windows -- verified.  Normalise to backslashes.
+            path = os.path.normpath(file_arg)
+            if not os.path.isfile(path):
+                raise FfActionError("", f"file not found: {file_arg}")
+            ctx = self._resolve_context(args, tops)
+            el = _p1_probe_el(self.ff, ctx, sel)
+            if not el.get("found"):
+                raise FfActionError("", f"no element matches selector {sel}")
+            if el.get("tag") != "input" or el.get("type") != "file":
+                raise FfActionError(
+                    "", f"selector must resolve to an <input type=file>; "
+                    f"{sel} is <{el.get('tag')} type={el.get('type')}>")
+            sid = _p1_find_shared(self.ff, ctx, sel)
+            if sid is None:
+                raise FfActionError("", f"no element matches selector {sel}")
+            self.ff.command("input.setFiles", {
+                "context": ctx,
+                "element": {"sharedId": sid},
+                "files": [path]})
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "file": file_arg, "tag": "input"}}}
 
 
 # ---------------------------------------------------------------------------
