@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Webflow Bridge 控制面板</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="head">
+    <h1>Webflow Bridge <span class="ver">ff 0.1.0</span></h1>
+    <p class="sub">本地控制面板 · 仅连接 127.0.0.1:10096</p>
+  </header>
+
+  <!-- 1. 状态区 -->
+  <section class="card">
+    <h2>状态</h2>
+    <div class="status-row">
+      <span class="dot" id="daemon-dot" data-state="unknown"></span>
+      <span class="status-text" id="daemon-text">检测中…</span>
+    </div>
+    <div class="status-row">
+      <span class="dot" id="ff-dot" data-state="unknown"></span>
+      <span class="status-text" id="ff-text">—</span>
+    </div>
+    <div class="err-line" id="status-err" hidden></div>
+  </section>
+
+  <!-- 2. 快捷操作 -->
+  <section class="card">
+    <h2>快捷操作</h2>
+    <div class="btn-row">
+      <button id="btn-pageinfo" type="button">取当前页标题 / URL</button>
+      <button id="btn-tabs" type="button">列出标签页</button>
+    </div>
+    <div id="pageinfo" class="kv" hidden></div>
+    <ul id="tabs-list" class="tabs" hidden></ul>
+    <div id="tabs-empty" class="muted" hidden>暂无标签页列表</div>
+  </section>
+
+  <!-- 3. 执行 JS -->
+  <section class="card">
+    <h2>执行 JS <span class="hint">daemon 在 Firefox 页面内执行（CSP 免疫）</span></h2>
+    <textarea id="exec-code" rows="3" spellcheck="false"
+      placeholder='例：1 + 1&#10;例：document.title&#10;例：(() => ({title: document.title, url: location.href}))()'></textarea>
+    <div class="btn-row">
+      <button id="btn-exec" type="button" class="primary">执行</button>
+      <button id="btn-clear" type="button" class="ghost">清空</button>
+    </div>
+    <pre id="result" class="result" hidden></pre>
+    <div id="history" class="history" hidden>
+      <div class="h2line">最近执行</div>
+      <div id="history-list"></div>
+    </div>
+  </section>
+
+  <!-- 4. token 区 -->
+  <section class="card">
+    <h2>鉴权 token</h2>
+    <div class="token-line">
+      <code id="token-text" class="token">—</code>
+      <button id="btn-copy-token" type="button" disabled>复制</button>
+    </div>
+    <div class="muted small" id="token-hint">daemon 离线时不可用</div>
+  </section>
+
+  <!-- 5. 启动指引 -->
+  <section class="card">
+    <details>
+      <summary>启动指引（扩展无法自启 daemon / Firefox）</summary>
+      <ol class="guide">
+        <li>启动 Firefox（真实 profile + BiDi 9222）：
+          <code>ff\ff-launch.bat</code></li>
+        <li>启动 ff daemon（HTTP :10096）：
+          <code>C:/Users/darre/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe ff/daemon/ff_bridge.py</code></li>
+        <li>验证：本面板状态灯应转绿，Firefox 显示「已连接」。</li>
+      </ol>
+      <p class="muted small">扩展只做控制面板：驱动由本地 daemon 经 WebDriver BiDi 完成，能力对等 Chrome 版。文档：<code>C:/Users/darre/Desktop/webflow/ff/README.md</code></p>
+    </details>
+  </section>
+
+  <footer class="foot muted">Webflow Bridge for Firefox · companion（MV2 · 无后台页 · 无数据收集）</footer>
+  <script src="popup.js"></script>
+</body>
+</html>

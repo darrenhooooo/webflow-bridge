@@ -5,7 +5,7 @@
 **独立产品：Webflow Bridge for Firefox**（不是 daemon 加后端，是 Chrome 版的 Firefox 变体）。
 - 目标：能力对等的 Firefox 版——同一套 HTTP `/command` 协议与动作契约，脚本只需换端口即可从 Chrome 版迁移。
 - 用户视角：驱动「用户日常在用的 Firefox」（真实 profile、登录态、cookie 全保留），像 Chrome 版驱动日常 Chrome 一样。
-- 分发：核心 = Firefox BiDi 直连 daemon + 启动器；**AMO 上架 companion 扩展做配角**（品牌/状态/引导，非能力载体）。
+- 分发：核心 = Firefox BiDi 直连 daemon + 启动器；**AMO 上架 companion 附加组件做配角**（品牌/状态/引导，非能力载体）。
 - 不触碰：Chrome/Edge 版代码与 44/44 流程零改动；两版可同机并存（不同端口）。
 
 ## 1. 平台事实（2026-09-08 Firefox 155.0.1 本机实测）
@@ -19,7 +19,7 @@
 | 5 | session.new / navigate / getTree / captureScreenshot 全通 | BiDi 基础链路可用 |
 | 6 | 无 chrome.debugger API（MDN 确认）；CDP 已从 Firefox 移除 | 唯一通道 = WebDriver BiDi |
 | 7 | AMO 政策：必须提交可审查源码（MIT 开源即满足） | 上架无障碍 |
-| 8 | Firefox MV3 持续收紧字符串执行（149-152 移除注入类能力） | companion 扩展不做能力载体，规避该风险 |
+| 8 | Firefox MV3 持续收紧字符串执行（149-152 移除注入类能力） | companion 附加组件不做能力载体，规避该风险 |
 
 ## 2. 架构
 
@@ -30,7 +30,7 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
                                 ↑
                      ff-launch（真实 profile + --remote-debugging-port 9222）
                                 ↑
-                     AMO companion 扩展（状态/启动/引导，可选安装）
+                     AMO companion 附加组件（状态/启动/引导，可选安装）
 ```
 
 ### 2.1 组件清单（独立 Firefox 版目录）
@@ -39,7 +39,7 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 |---|---|
 | `ff/daemon/ff_bridge.py` | 独立 daemon：HTTP `POST :10096/command`（协议同 Chrome 版）+ BiDi 客户端直连 Firefox。Python stdlib only（RFC6455 已有实现可复用 Chrome 版 daemon 的 framing 代码） |
 | `ff/ff-launch.bat` / `.command` / `.lnk` | 启动器：解析 profiles.ini 找 Default profile → `firefox.exe -profile <真实profile> --remote-debugging-port 9222`。幂等：若该 profile 已在跑则提示先关闭。不新建/复制 profile |
-| `ff/extension/`（companion，AMO 上架） | 薄扩展：工具栏显示 daemon 连接状态 / 一键启动 ff-launch / 显示 token / 跳转文档。无 debugger、无 <all_urls>、无内容注入 → AMO 低风险 |
+| `ff/extension/`（companion，AMO 上架） | 薄附加组件：工具栏显示 daemon 连接状态 / 一键启动 ff-launch / 显示 token / 跳转文档。无 debugger、无 <all_urls>、无内容注入 → AMO 低风险 |
 | `ff/docs/` | 安装/使用/FAQ（中英）；明确 Firefox 指纹特性与支持范围 |
 | 复用 | Chrome 版协议文档/动作契约/鉴权模型（token 文件、/config、Bearer）原样照搬，端口换 10096 |
 
@@ -67,7 +67,7 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 
 ## 3. 安全模型
 
-- **本地鉴权**：ff daemon 独立 token（同 Chrome 版机制），HTTP Bearer 校验；`/config` 供 companion 扩展引导。
+- **本地鉴权**：ff daemon 独立 token（同 Chrome 版机制），HTTP Bearer 校验；`/config` 供 companion 附加组件引导。
 - **BiDi 通道防护（关键待验证）**：Firefox remote agent 在 `ws://127.0.0.1:9222/session` 是否校验 Origin？若恶意网页可 `new WebSocket('ws://127.0.0.1:9222/session')` 抢会话/发命令，必须加防护：
   - 首选验证：Firefox 是否拒绝带非 localhost Origin 的 WS 握手（Chrome 的 remote debugging 有此防护）。
   - 若无防护：ff-launch 增加前置检查（确认 9222 仅 127.0.0.1 监听）+ README 安全说明；必要时引导 Firefox 用 `remote.force-local` 类设置（Firefox remote agent 有 local-only 默认，需实测确认）。
@@ -80,7 +80,7 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 | P0 | ff daemon 骨架：HTTP :10096 + token 鉴权 + BiDi 连接（session.new/getTree/navigate/evaluate/tabs_list/tabs_open/close/probe）+ cdp 明确报错 + ff-launch(win) | 启动器开真实 profile Firefox，`evaluate document.title` 返回真实页面；Chrome 版 daemon 不受影响可并存 |
 | P1 | 输入面：click/fill/type_text/send_key/mouse_click/screenshot/save_as_pdf/find_tab/tabs_activate + upload(若 setFiles 可行) | 对照 Chrome p0_smoke 用例集在 Firefox 跑通核心闭环 |
 | P2 | snapshot DOM→a11y 生成器 + network/console 事件 + handle_dialog/file_chooser + humanize | snapshot/click 循环可用；事件类动作有输出 |
-| P3 | companion 扩展（AMO 就绪：manifest/图标/隐私/源码可审）+ ff-launch(mac) + 文档（README 双语/HTTP_API/openapi 分版）+ 双 daemon 回归 | AMO 自检清单齐；文档与实测一致；Chrome 44/44 零回退 |
+| P3 | companion 附加组件（AMO 就绪：manifest/图标/隐私/源码可审）+ ff-launch(mac) + 文档（README 双语/HTTP_API/openapi 分版）+ 双 daemon 回归 | AMO 自检清单齐；文档与实测一致；Chrome 44/44 零回退 |
 | P4 | （可选）AMO 提交 + 上架运维 | 上架通过 |
 
 预估：P0 1天；P1 1-2天；P2 2-3天；P3 1天。合计 5-7 人日。
@@ -99,7 +99,7 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 
 - 取舍：cdp 透传、snapshot 在 Firefox 版是降级或重实现；能力面以 §2.3 为准，README 如实标注。
 - 风险：WebDriver BiDi 仍在演进（Firefox 里程碑推进），个别动作随版本变化；锁定版本下限（实测 155，README 建议 129+/推荐 140+）。
-- 合规：AMO companion 薄扩展低风险；核心 daemon 不开源上架（本地工具），companion 源码可审。
+- 合规：AMO companion 薄附加组件低风险；核心 daemon 不开源上架（本地工具），companion 源码可审。
 - 回退：Chrome/Edge 版零改动；Firefox 版独立目录独立端口，删除即干净。
 
 ## 7. 验收清单（darren 审）
@@ -107,5 +107,5 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 - [ ] ff-launch 用真实日常 profile 打开 Firefox，登录态可见
 - [ ] ff daemon 能驱动该 Firefox 完成 evaluate/navigate/click/fill 基础闭环
 - [ ] Chrome 版 44/44 零回退（双 daemon 并存跑一遍）
-- [ ] companion 扩展在 Firefox 加载成功，显示 daemon 状态
+- [ ] companion 附加组件在 Firefox 加载成功，显示 daemon 状态
 - [ ] README 明确 Firefox 支持范围、指纹限制、安装三步

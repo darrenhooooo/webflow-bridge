@@ -64,8 +64,28 @@ FF_PORT = 9222
 
 # Origins a browser page may POST from (same CSRF posture as the Chrome
 # daemon, scoped to this daemon's own port).  Native scripts/curl send no
-# Origin header and are unaffected once they authenticate.
+# Origin header and are unaffected once they authenticate.  Beyond the two
+# exact localhost values below, any moz-extension://<uuid> origin is also
+# accepted via origin_allowed(): the Firefox companion's popup fetches this
+# daemon and Firefox ALWAYS stamps extension-page requests with a
+# moz-extension://<uuid> Origin header (the UUID changes on every temporary
+# load, so it cannot be enumerated exactly -- hence prefix matching).
 ALLOWED_ORIGINS = {"http://127.0.0.1:10096", "http://localhost:10096"}
+
+
+def origin_allowed(origin: str) -> bool:
+    """True when an Origin header may POST to /command.
+
+    Exact match on ALLOWED_ORIGINS, else any moz-extension:// source.
+    Security rationale: only a real Firefox extension page can emit a
+    moz-extension:// Origin header -- web content cannot forge it -- and
+    bearer auth (check_auth) already runs BEFORE this guard in do_POST, so
+    a malicious page without the token is still stopped with 401.  Letting
+    the moz-extension prefix through therefore costs nothing in CSRF terms.
+    """
+    if origin in ALLOWED_ORIGINS:
+        return True
+    return origin.startswith("moz-extension://")
 
 EVAL_TIMEOUT = 120          # seconds an HTTP caller waits for Firefox
 QUICK_TIMEOUT = 8           # internal per-tab probes (title / visibility)
@@ -915,18 +935,13 @@ class CommandHandler(BaseHTTPRequestHandler):
     server_version = "WebflowBridgeFF/1.0"
 
     def do_POST(self):                                  # noqa: N802 (stdlib API)
-        if self.path != "/command":
-            return self._send_json(404, {"error": "not found: use POST /command"})
         who = str(self.client_address[0]) if self.client_address else ""
-        if not check_auth(self.headers.get("Authorization")):
-            audit("unauthorized http", who, detail=self.path)
-            return self._send_json(401, {
-                "error": "unauthorized: missing or invalid bearer token"})
-        # CSRF/Origin guard for browser-originated POSTs (absent Origin,
-        # as native scripts/curl send, is always allowed).
-        origin = self.headers.get("Origin")
-        if origin is not None and origin not in ALLOWED_ORIGINS:
-            return self._send_json(403, {"error": "cross-origin POST blocked"})
+        # Drain the request body (per Content-Length) BEFORE any rejection
+        # check: on HTTP/1.1 keep-alive an unconsumed body leaves stray
+        # bytes in the connection stream and corrupts the next request on
+        # the same connection (observed as spurious 501s).  Every early
+        # exit -- 404 / 401 / 403 / bad Content-Length -- must leave the
+        # stream exactly as clean as the dispatch path further down.
         length = self.headers.get("Content-Length")
         try:
             length = int(length) if length else 0
@@ -934,6 +949,20 @@ class CommandHandler(BaseHTTPRequestHandler):
             return self._send_json(200, {"status": "error",
                                          "error": "bad Content-Length"})
         raw = self.rfile.read(length) if length else b""
+        if self.path != "/command":
+            return self._send_json(404, {"error": "not found: use POST /command"})
+        if not check_auth(self.headers.get("Authorization")):
+            audit("unauthorized http", who, detail=self.path)
+            return self._send_json(401, {
+                "error": "unauthorized: missing or invalid bearer token"})
+        # CSRF/Origin guard for browser-originated POSTs (absent Origin,
+        # as native scripts/curl send, is always allowed).  Accepted: the
+        # exact localhost origins above, or any moz-extension://<uuid>
+        # source (see origin_allowed).  Auth runs before this guard, so a
+        # malicious page without the token is already stopped with 401.
+        origin = self.headers.get("Origin")
+        if origin is not None and not origin_allowed(origin):
+            return self._send_json(403, {"error": "cross-origin POST blocked"})
         try:
             payload = json.loads(raw.decode("utf-8") or "{}")
         except ValueError:
@@ -962,13 +991,17 @@ class CommandHandler(BaseHTTPRequestHandler):
         log.info("http: " + fmt % args)
 
 
-BRIDGE = Bridge(FfBiDi())
+# BRIDGE is a module global because CommandHandler.dispatch and main()'s
+# shutdown path both reference it, but it is built at RUNTIME in main()
+# once --ff-port has been parsed: a module-level Bridge(FfBiDi()) would
+# hard-code the default 9222 and silently ignore --ff-port.
+BRIDGE = None           # assigned in main() before serve_forever
 
 
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH
+    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, BRIDGE
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s")
     parser = argparse.ArgumentParser(
@@ -992,6 +1025,11 @@ def main() -> None:
     if opts.audit:
         AUDIT_PATH = opts.audit
     AUTH_TOKEN = load_auth_token()
+    # Fix 2: build the BiDi client + Bridge here, after --ff-port has been
+    # parsed, so opts.ff_port (default 9222) actually reaches FfBiDi.
+    log.info("targeting Firefox remote agent at ws://%s:%d/session",
+             FF_HOST, opts.ff_port)
+    BRIDGE = Bridge(FfBiDi(port=opts.ff_port))
     httpd = None
     try:
         httpd = ThreadingHTTPServer((HTTP_HOST, opts.http_port), CommandHandler)
