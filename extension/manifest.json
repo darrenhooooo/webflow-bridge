@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Webflow Bridge",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Local browser-automation bridge: evaluate JS / send CDP on your active tab from a local daemon. Runs 100% locally on Chrome & Edge.",
   "permissions": ["scripting", "activeTab", "tabs", "debugger", "alarms", "tabGroups"],
   "host_permissions": ["<all_urls>"],

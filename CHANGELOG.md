@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.0.0 — 2026-09-09
+
+**收口发布**：Chrome/Edge 版 + Firefox 版能力对等完成，公开协议动作集冻结
+（MAJOR bump，见 docs/VERSIONING.md）。
+
+### 收口内容
+- Firefox 版补齐 tabs_close_all_but（对齐 Chrome 语义：默认 active/首个
+  context、显式目标失效明确报错不静默全关）
+- 能力对等终核：Firefox 覆盖公开协议动作集 100%（24 动作，含 2 项平台物理
+  不支持项 cdp / handle_file_chooser 明确报错并引导替代）
+- 已知差异（不阻塞）：Chrome 版另有 5 个未文档化扩展面动作
+  （drop / fill_form / submit / wait_for / resize_page，gplp 流程专用），
+  Firefox 版未实现，按需后续对齐
+- 双 daemon 并存回归 09-08 全绿：Chrome smoke 6/6 + Firefox P0 4/4 +
+  P1 13/13 + P2 13/13 同机并存；X/LI 44/44 全流程由 gplp 日常发布覆盖
+- 上架就绪：CWS STORE_LISTING / AMO README_AMO + dist zip 产物
+  webflow-bridge-1.0.0.zip（rebuild_zip.py）
+
 ## v0.4.0 — 2026-09-08
 
 Firefox 版 P3 完成（MINOR bump，见 docs/VERSIONING.md）。

@@ -66,6 +66,16 @@ patch bump 并同步上述载体。
 5. `git tag v<ver>` → `git push origin main` + `git push origin v<ver>`
 6. 涉及产物分发时重建 zip（`tools/rebuild_zip.py`）并核对产物名
 
+## 1.0.0 达成（2026-09-09）
+
+收口条件全部满足，协议动作集冻结，进入 1.x 语义化版本阶段：
+- 1.x patch：缺陷/安全修复、纯文档、构建修复（1.0.0 → 1.0.1）
+- 1.x minor：新增向后兼容能力（动作/参数/平台/渠道）（1.0.x → 1.1.0）
+- 2.0：向后不兼容的协议变更（breaking，须 CHANGELOG 标 [breaking] + 迁移说明）
+- 1.0.0 已知差异：Chrome 版 5 个未文档化扩展面动作（drop/fill_form/submit/
+  wait_for/resize_page）未在 Firefox 版实现，按需后续对齐；cdp 与
+  handle_file_chooser 为 Firefox 平台物理不支持（明确报错）。
+
 ## 历史处理（2026-09-08）
 
 - 废弃旧 1.x 编号体系（extension manifest 1.1.0、旧 tag v1.1.0）：已删除本地与
