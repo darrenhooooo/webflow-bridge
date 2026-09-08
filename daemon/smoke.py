@@ -7,7 +7,7 @@ Sends a few real commands through the full pipeline:
     daemon (:10086)  ->  WS (:10087)  ->  extension  ->  active tab page
 
 Prerequisites:
-  1. daemon running:       uv run --python 3.11 daemon/rhino_bridge.py
+  1. daemon running:       uv run --python 3.11 daemon/webflow_bridge.py
   2. extension loaded:     chrome://extensions -> Developer mode -> Load unpacked
                            -> extension/   (Webflow Bridge)
   3. Chrome open on a real http(s) page in the ACTIVE tab (not chrome://,
@@ -80,7 +80,7 @@ def _not_connected(status, body) -> bool:
 def expect_ok_value(code: str, want):
     status, body = evaluate(code)
     if status is None:
-        return False, f"daemon unreachable: {body.get('error')} — start it with 'uv run --python 3.11 daemon/rhino_bridge.py'"
+        return False, f"daemon unreachable: {body.get('error')} — start it with 'uv run --python 3.11 daemon/webflow_bridge.py'"
     if _not_connected(status, body):
         return False, "extension not connected — load extension/ in Chrome and keep an http(s) page active"
     if isinstance(body, dict) and "Receiving end does not exist" in str(body.get("error", "")):
@@ -180,8 +180,8 @@ def main(argv) -> int:
         ("evaluate: structured object result (url/title)",
          lambda: expect_ok_object("(() => ({ url: location.href, title: document.title }))()")),
         ("evaluate: thrown error is reported as status=error",
-         lambda: expect_error_reported("(() => { throw new Error('rhino-smoke-error'); })()",
-                                       "rhino-smoke-error")),
+         lambda: expect_error_reported("(() => { throw new Error('webflow-smoke-error'); })()",
+                                       "webflow-smoke-error")),
         ("cdp: Runtime.evaluate passthrough returns document.title",
          lambda: expect_cdp_title()),
         ("tabs_list returns at least one tab",

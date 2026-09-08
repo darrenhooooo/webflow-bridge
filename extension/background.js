@@ -123,7 +123,7 @@
 //
 // Reconnects automatically with exponential backoff capped at 30 s. A
 // heartbeat keeps the socket + service worker alive while the daemon is up.
-// A chrome.alarms watchdog ('rhino-reconnect', 0.5 min period) is the
+// A chrome.alarms watchdog ('webflow-reconnect', 0.5 min period) is the
 // fallback for MV3 worker suspension: timers die with the worker, but the
 // alarm still fires on the next wake-up and force-reconnects a dead socket.
 
@@ -2234,7 +2234,7 @@ async function activeTab() {
 // wakes it, and force-reconnects if the daemon socket died while asleep.
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== 'rhino-reconnect') return;
+  if (alarm.name !== 'webflow-reconnect') return;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     backoff = 1000;
     connect();              // connect() clears any pending reconnectTimer too
@@ -2244,4 +2244,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 connect();
 // Arm the reconnect watchdog (0.5 min period — Chrome's unpacked minimum; the
 // alarm fires on schedule even if this service worker has been suspended).
-chrome.alarms.create('rhino-reconnect', { periodInMinutes: 0.5 });
+chrome.alarms.create('webflow-reconnect', { periodInMinutes: 0.5 });

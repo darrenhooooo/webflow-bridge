@@ -54,7 +54,7 @@ daemon 通过本地 WebSocket 转发给扩展，扩展再经 Chrome 的 debugger
 ```
 ┌──────────────────────────┐   POST /command   ┌──────────────────────────────┐
 │  现有发布脚本(不改动)      │ ----------------> │ Python daemon  :10086 HTTP   │
-│  POST 请求                │ <---------------- │ daemon/rhino_bridge.py       │
+│  POST 请求                │ <---------------- │ daemon/webflow_bridge.py       │
 └──────────────────────────┘   JSON 响应        └──────────────┬───────────────┘
                                                               │  WebSocket ws://127.0.0.1:10087
                                                               ▼
@@ -97,7 +97,7 @@ webflow/
 ├── README.md            # 英文说明
 ├── README.zh-CN.md      # 中文说明
 ├── daemon/
-│   ├── rhino_bridge.py  # HTTP :10086 (POST /command) + WS :10087
+│   ├── webflow_bridge.py  # HTTP :10086 (POST /command) + WS :10087
 │   └── smoke.py         # 旧版端到端冒烟(真实页面)
 ├── docs/
 │   ├── PRIVACY.md       # 英文隐私政策(商店上架用)
@@ -137,14 +137,14 @@ webflow/
 ```bash
 cd /path/to/webflow        # 项目根目录(本仓库: daemon/, extension/ …)
 # 方式 A — uv(推荐; 各 OS 一致):
-uv run --python 3.11 daemon/rhino_bridge.py
+uv run --python 3.11 daemon/webflow_bridge.py
 # 方式 B — 普通 Python 3.11+(无 uv):
-python3 daemon/rhino_bridge.py
+python3 daemon/webflow_bridge.py
 ```
 
 > `python3` 在 macOS/Linux 是真解释器。Windows 上必须是真 Python 3.11
 > (例如 python.org 安装的)— 不是 Microsoft Store 的假桩
-> (那里用 `py -3.11 daemon/rhino_bridge.py` 也可以)。
+> (那里用 `py -3.11 daemon/webflow_bridge.py` 也可以)。
 
 看到带两个监听端口的启动横幅即成功:
 

@@ -43,8 +43,8 @@ Run JS and CDP commands on your active tab from a local daemon. Browser-automati
 > **Install & use**
 > 1. Load the extension at `chrome://extensions` → Developer mode → Load
 >    unpacked → the `extension/` folder.
-> 2. Run the daemon from the repo: `uv run --python 3.11 daemon/rhino_bridge.py`
->    (or `python daemon/rhino_bridge.py`).
+> 2. Run the daemon from the repo: `uv run --python 3.11 daemon/webflow_bridge.py`
+>    (or `python daemon/webflow_bridge.py`).
 > 3. Keep Chrome on a real website, then POST a command:
 >
 >    ```bash

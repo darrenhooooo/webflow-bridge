@@ -9,7 +9,7 @@ Covers (daemon HTTP :10086 -> WS :10087 -> extension -> real tab):
 
 Prerequisites (one-time):
   1. daemon running with the NEW code:
-       python3 daemon/rhino_bridge.py            (restart if it was running)
+       python3 daemon/webflow_bridge.py            (restart if it was running)
   2. extension reloaded at chrome://extensions (after the background.js edit)
   3. this page server running:
        python3 -m http.server 8921 -d tools/devtest
@@ -473,7 +473,7 @@ def main() -> int:
     print()
     print(f"summary: {total - failures}/{total} passed")
     if failures:
-        print("HINT: daemon running the NEW rhino_bridge.py? extension reloaded?")
+        print("HINT: daemon running the NEW webflow_bridge.py? extension reloaded?")
         print("      page server on :8921? Chrome on a normal page?")
     return 1 if failures else 0
 

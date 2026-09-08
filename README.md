@@ -48,7 +48,7 @@ channel.
 ```
 ┌──────────────────────────┐   POST /command   ┌──────────────────────────────┐
 │ existing publish scripts │ ----------------> │ Python daemon  :10086 HTTP   │
-│ (unchanged) - POST       │ <---------------- │ daemon/rhino_bridge.py       │
+│ (unchanged) - POST       │ <---------------- │ daemon/webflow_bridge.py       │
 └──────────────────────────┘   JSON response   └──────────────┬───────────────┘
                                                               │  WebSocket ws://127.0.0.1:10087
                                                               ▼
@@ -94,7 +94,7 @@ webflow/
 ├── LICENSE              # MIT
 ├── README.md
 ├── daemon/
-│   ├── rhino_bridge.py     # HTTP :10086 (POST /command) + WS :10087
+│   ├── webflow_bridge.py     # HTTP :10086 (POST /command) + WS :10087
 │   └── smoke.py            # end-to-end smoke test (real page)
 ├── docs/
 │   └── PRIVACY.md          # plain-English privacy policy
@@ -120,14 +120,14 @@ webflow/
 ```bash
 cd /path/to/webflow        # project root (this repo: daemon/, extension/, ...)
 # Runtime A — uv (recommended; works the same on every OS):
-uv run --python 3.11 daemon/rhino_bridge.py
+uv run --python 3.11 daemon/webflow_bridge.py
 # Runtime B — plain Python 3.11+ (no uv needed):
-python3 daemon/rhino_bridge.py
+python3 daemon/webflow_bridge.py
 ```
 
 > `python3` is the real interpreter on macOS/Linux. On Windows it must be a
 > real Python 3.11 (e.g. from python.org) — not the Microsoft Store stub
-> (`py -3.11 daemon/rhino_bridge.py` also works there).
+> (`py -3.11 daemon/webflow_bridge.py` also works there).
 
 You should see the startup banner with both listening ports:
 

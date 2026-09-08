@@ -16,7 +16,7 @@ Verified on Windows 11 + Chrome 152 (2025-09-04); others expected-identical — 
 For each new platform combo (macOS/Windows × Chrome/Edge):
 
 1. Install uv (recommended) or Python 3.11+ (Windows: real interpreter, not the Microsoft Store stub).
-2. From repo root start the daemon — `uv run --python 3.11 daemon/rhino_bridge.py` or `python3 daemon/rhino_bridge.py`; confirm the "Webflow Bridge daemon started" banner with :10086 / :10087.
+2. From repo root start the daemon — `uv run --python 3.11 daemon/webflow_bridge.py` or `python3 daemon/webflow_bridge.py`; confirm the "Webflow Bridge daemon started" banner with :10086 / :10087.
 3. Load the extension: `chrome://extensions` or `edge://extensions` → Developer mode → Load unpacked → `extension/`.
 4. Run `uv run --python 3.11 daemon/smoke.py` (or `python3 daemon/smoke.py`) → expect **6/6 PASS**.
 5. Keep an http(s) page active, POST an `evaluate` (curl example in README.md), confirm `document.title` returns.

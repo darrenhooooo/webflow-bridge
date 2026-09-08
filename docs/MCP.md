@@ -349,8 +349,8 @@ name (this is the #1 silent failure mode across JSON clients).
 
 | OS | uv present (recommended) | uv absent, venv exists | Daemon start command |
 |---|---|---|---|
-| Windows | `command: "uv"`<br>`args: ["run", "--project", "<PROJECT>/mcp", "mcp_server.py"]` | `command: "<PROJECT>/mcp/.venv/Scripts/python.exe"`<br>`args: ["<PROJECT>/mcp/mcp_server.py"]` | with uv: `uv run --python 3.11 daemon/rhino_bridge.py`<br>no uv: `py -3.11 daemon/rhino_bridge.py` |
-| macOS | identical uv block | `command: "<PROJECT>/mcp/.venv/bin/python"`<br>`args: ["<PROJECT>/mcp/mcp_server.py"]` | with uv: `uv run --python 3.11 daemon/rhino_bridge.py`<br>no uv: `python3 daemon/rhino_bridge.py` |
+| Windows | `command: "uv"`<br>`args: ["run", "--project", "<PROJECT>/mcp", "mcp_server.py"]` | `command: "<PROJECT>/mcp/.venv/Scripts/python.exe"`<br>`args: ["<PROJECT>/mcp/mcp_server.py"]` | with uv: `uv run --python 3.11 daemon/webflow_bridge.py`<br>no uv: `py -3.11 daemon/webflow_bridge.py` |
+| macOS | identical uv block | `command: "<PROJECT>/mcp/.venv/bin/python"`<br>`args: ["<PROJECT>/mcp/mcp_server.py"]` | with uv: `uv run --python 3.11 daemon/webflow_bridge.py`<br>no uv: `python3 daemon/webflow_bridge.py` |
 | Linux | identical uv block | identical macOS block | identical to macOS |
 
 Notes:
@@ -393,7 +393,7 @@ Notes:
   browser extension is connected (if the daemon is fully down you instead get
   a connection-refused `ERROR:` from urllib). Either way the fix is the same:
   start the daemon
-  (`uv run --python 3.11 daemon/rhino_bridge.py` from the repo root) and keep
+  (`uv run --python 3.11 daemon/webflow_bridge.py` from the repo root) and keep
   Chrome/Edge open with the Webflow Bridge extension loaded on a normal page.
 - **`wf_evaluate` returns an ERROR on the active tab** — the active tab must be
   an **http(s) page** for the debugger to attach; `chrome://`, the Chrome Web

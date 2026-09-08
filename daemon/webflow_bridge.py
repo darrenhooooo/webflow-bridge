@@ -151,7 +151,7 @@ WS_ACCEPT_KEY = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"   # RFC 6455 GUID
 MAX_FRAME = 64 << 20        # sanity cap for a single WS message (64 MiB)
 KEEPALIVE_INTERVAL = 15     # daemon->extension WS ping period (MV3 SW keepalive)
 
-log = logging.getLogger("rhino-bridge")
+log = logging.getLogger("webflow-bridge")
 
 
 # ---------------------------------------------------------------------------

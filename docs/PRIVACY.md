@@ -50,6 +50,6 @@ run the daemon on machines you trust.
 
 1. Uninstall the extension at `chrome://extensions` (remove "Webflow Bridge").
 2. Delete this repository.
-3. Stop the daemon process running `daemon/rhino_bridge.py`.
+3. Stop the daemon process running `daemon/webflow_bridge.py`.
 
 No data is stored anywhere, so there is nothing else to delete.
