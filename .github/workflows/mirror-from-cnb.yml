@@ -29,4 +29,4 @@ jobs:
       - name: Mirror CNB main -> origin main
         run: |
           git checkout -B main cnb/main
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" main --force
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/darrenhooooo/webflow-bridge.git" main --force
