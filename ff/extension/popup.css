@@ -573,48 +573,61 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 }
 
 .wiz-cmd {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.wiz-cmd-label {
-  flex: none;
-  font: 600 11px/1.5 system-ui, -apple-system, "Segoe UI", Roboto,
-        "Microsoft YaHei", sans-serif;
-  color: var(--muted);
-  white-space: nowrap;
+  position: relative;
+  display: block;
 }
 
 .wiz-cmd code {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 7px;
+  display: block;
+  margin: 0;
+  padding: 6px 32px 6px 8px;   /* 右侧留出内嵌复制按钮位 */
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font: 11px/1.5 var(--mono);
+  font: 11px/1.55 var(--mono);
   color: var(--text);
   word-break: break-all;
   white-space: normal;
 }
 
 .copy-btn {
-  flex: none;
-  padding: 2px 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--primary);
-  font: 500 10.5px/1.4 system-ui, -apple-system, "Segoe UI", Roboto,
-        "Microsoft YaHei", sans-serif;
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--muted);
   cursor: pointer;
-  white-space: nowrap;
 }
 
-.copy-btn:hover { background: var(--surface-2); border-color: var(--primary); }
-.copy-btn.copied { color: var(--ok); border-color: var(--ok-border); }
-.copy-btn:disabled { opacity: 0.6; cursor: default; }
+.copy-btn svg { display: block; }
+.copy-btn .ci-ok { display: none; }
+
+.copy-btn:hover { background: var(--surface-2); color: var(--primary); }
+.copy-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
+.copy-btn:disabled { opacity: 0.55; cursor: default; }
+.copy-btn:disabled:hover { background: transparent; color: var(--muted); }
+
+/* 复制成功 → 绿色对勾图标（图标态反馈，无文字） */
+.copy-btn.copied { color: var(--ok); }
+.copy-btn.copied .ci-copy { display: none; }
+.copy-btn.copied .ci-ok { display: block; color: var(--ok); }
+
+/* 引导卡 / 启动指引 <li> 内追加的 .wiz-cmd：块级、上下留距 */
+.act-steps .wiz-cmd,
+.guide .wiz-cmd {
+  margin: 6px 0 0;
+}
+
+.wiz-cmd + .wiz-cmd { margin-top: 4px; }
 
 .wiz-note {
   font-size: 11px;

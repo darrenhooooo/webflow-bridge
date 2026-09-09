@@ -71,7 +71,9 @@ function setGuide(kind) {
   const vars = guideVars();
   for (const k of keys) {
     const li = document.createElement('li');
-    li.innerHTML = T(k, vars);
+    li.innerHTML = T(k, vars);                    // 引导句文字保留（含句中 code）
+    const vals = GUIDE_CMD_VALUES[k];             // 长命令/路径 → 追加可复制 .wiz-cmd
+    if (vals) for (const v of vals) li.appendChild(makeCmdBox(vars[v]));
     list.appendChild(li);
   }
   $('act-guide').hidden = false;
@@ -150,12 +152,12 @@ function truncate(text, max) {
 }
 
 // 修复内容构建器（仅 'bad' 行使用；静态模板文案走 innerHTML，动态错误走 textContent）。
-// 极简引导句 + 带标签的命令行（平台命令 / uv，各带复制）。
+// 极简引导句 + 两条可复制命令行（平台命令 / uv，无文字标签，代码框内嵌复制图标）。
 function daemonFix() {
   const fix = [];
   fix.push({ type: 'text', html: T('daemon_lead') });
-  fix.push({ type: 'cmd', label: T('cmd_python'), cmd: DAEMON_CMD });
-  fix.push({ type: 'cmd', label: T('cmd_uv'), cmd: DAEMON_UV_CMD });
+  fix.push({ type: 'cmd', cmd: DAEMON_CMD });
+  fix.push({ type: 'cmd', cmd: DAEMON_UV_CMD });
   fix.push({ type: 'text', html: T('daemon_fix_wait') });
   return fix;
 }
@@ -175,7 +177,8 @@ function pageFix(p) {
                    /firefox 未连接|firefox not connected|没有.*bidi.*会话/.test(low);
   const fix = [];
   if (isFxDown) {
-    fix.push({ type: 'text', html: T('pagefix_fx_1', { launch: FF_LAUNCH_CMD }) });
+    fix.push({ type: 'text', html: T('pagefix_fx_1') });      // 纯引导句（句中 code 已移除）
+    fix.push({ type: 'cmd', cmd: FF_LAUNCH_CMD });            // 可复制启动命令行
     fix.push({ type: 'text', html: T('pagefix_fx_2') });
     fix.push({ type: 'text', html: T('pagefix_fx_3') });
     fix.push({ type: 'text', html: T('press_recheck') });
@@ -186,6 +189,53 @@ function pageFix(p) {
   }
   if (p && p.error) fix.push({ type: 'raw', text: truncate(p.error, 120) });
   return fix;
+}
+
+/* ---------- 可复制命令行（.wiz-cmd 统一新形态：代码框 + 内嵌复制图标按钮） ---------- */
+// 内联 SVG（CSP 无外网）：默认复制图标；.copied 态由 CSS 切到绿色对勾图标。
+const COPY_ICON_SVG =
+  '<svg class="ci-copy" viewBox="0 0 16 16" width="12" height="12" fill="none" '
+  + 'stroke="currentColor" stroke-width="1.3" stroke-linecap="round" '
+  + 'stroke-linejoin="round" aria-hidden="true">'
+  + '<rect x="5.6" y="5.6" width="7.8" height="7.8" rx="1.4"/>'
+  + '<path d="M10.6 3.2H4.6a1.4 1.4 0 0 0-1.4 1.4v6"/></svg>'
+  + '<svg class="ci-ok" viewBox="0 0 16 16" width="12" height="12" fill="none" '
+  + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+  + 'stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M3.2 8.4l3.2 3.2 6.4-7"/></svg>';
+
+// 引导卡 / 启动指引各步「值得拆成可复制代码框」的命令值键（对应 guideVars()）。
+// 取舍原则：长命令/长路径（launch/dcmd/repo/uv/dcmd_unix）拆成 .wiz-cmd；
+// about:debugging 短地址串与句中文件路径说明（如 ff/daemon/ff_bridge.py 所在句）
+// 保留文字不拆。guide_f_1 只给当前平台启动命令（launch = win 用 lw / 其余 lm）。
+const GUIDE_CMD_VALUES = {
+  guide_start_1: ['launch'],
+  guide_start_2: ['dcmd'],
+  guide_d_1: ['repo'],
+  guide_d_2: ['dcmd'],
+  guide_d_3: ['dcmd_unix', 'uv'],
+  guide_f_1: ['launch'],
+};
+
+function makeCopyBtn(cmd) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'copy-btn';
+  btn.dataset.cmd = cmd;
+  btn.setAttribute('aria-label', T('copy'));
+  btn.innerHTML = COPY_ICON_SVG;
+  btn.addEventListener('click', () => copyCmd(btn));
+  return btn;
+}
+
+function makeCmdBox(cmd) {
+  const box = document.createElement('div');
+  box.className = 'wiz-cmd';
+  const code = document.createElement('code');
+  code.textContent = cmd;              // 命令值固定为常量——只用 textContent
+  box.appendChild(code);
+  box.appendChild(makeCopyBtn(cmd));
+  return box;
 }
 
 function addRow(name, rowState, fix) {
@@ -216,25 +266,8 @@ function addRow(name, rowState, fix) {
         el.innerHTML = item.html;            // 静态模板文案
         box.appendChild(el);
       } else if (item.type === 'cmd') {
-        const row = document.createElement('div');
-        row.className = 'wiz-cmd';
-        if (item.label) {
-          const lb = document.createElement('span');
-          lb.className = 'wiz-cmd-label';
-          lb.textContent = item.label;
-          row.appendChild(lb);
-        }
-        const code = document.createElement('code');
-        code.textContent = item.cmd;
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'copy-btn';
-        btn.dataset.cmd = item.cmd;
-        btn.textContent = T('copy');
-        btn.addEventListener('click', () => copyCmd(btn));
-        row.appendChild(code);
-        row.appendChild(btn);
-        box.appendChild(row);
+        // 命令行统一新形态：代码框 + 内嵌复制图标按钮（GitHub 代码块风格）。
+        box.appendChild(makeCmdBox(item.cmd));
       } else if (item.type === 'note') {
         const el = document.createElement('div');
         el.className = 'wiz-note';
@@ -255,7 +288,8 @@ function addRow(name, rowState, fix) {
 function renderRows(rows) {
   const list = $('wizRows');
   list.textContent = '';
-  for (const key of ['daemon', 'ext', 'page']) {
+  // 行序：扩展已就绪(ext) → daemon → 当前标签页(page)。
+  for (const key of ['ext', 'daemon', 'page']) {
     const r = rows[key];
     addRow(ROW_NAMES[key], r.state,
            r.fix || (r.note ? [{ type: 'note', text: r.note }] : null));
@@ -438,7 +472,8 @@ async function runDiagnosis(evHint) {
   showWizard();
   const list = $('wizRows');
   list.textContent = '';
-  for (const key of ['daemon', 'ext', 'page']) {
+  // busy 占位行序与 renderRows 一致（ext 最上）。
+  for (const key of ['ext', 'daemon', 'page']) {
     addRow(ROW_NAMES[key], 'busy', null);
   }
 
@@ -727,15 +762,13 @@ async function clipboardWrite(text) {
   return ok;
 }
 
+// cmd 复制反馈：图标态（成功 .copied → 绿色对勾，1.5s 还原），不写 Copied/Copy failed 文字。
 async function copyCmd(btn) {
   if (btn.disabled) return;
   const ok = await clipboardWrite(btn.dataset.cmd || '');
-  const prev = btn.textContent;
-  btn.textContent = ok ? T('copied') : T('copy_failed');
   btn.classList.toggle('copied', ok);
   btn.disabled = true;
   setTimeout(() => {
-    btn.textContent = prev;
     btn.classList.remove('copied');
     btn.disabled = false;
   }, 1500);
@@ -794,7 +827,9 @@ function renderStartupGuide() {
   ];
   for (const it of items) {
     const li = document.createElement('li');
-    li.innerHTML = T(it.k, it.v);
+    li.innerHTML = T(it.k, it.v);                 // 启动指引句保留
+    const vals = GUIDE_CMD_VALUES[it.k];
+    if (vals) for (const v of vals) li.appendChild(makeCmdBox(vars[v]));
     ol.appendChild(li);
   }
   const p = $('ext-desc');
