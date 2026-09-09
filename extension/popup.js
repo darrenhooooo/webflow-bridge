@@ -143,7 +143,8 @@
     const fix = [];
     if (/cannot attach debugger to tab|cannot be debugged|must be a debuggable page|no active tab found/.test(low)) {
       fix.push({ type: 'text', html: T('page_fix_switch') });
-      fix.push({ type: 'text', html: T('page_fix_restricted') });
+      fix.push({ type: 'text',
+                 html: T(IS_EDGE ? 'page_fix_restricted_edge' : 'page_fix_restricted') });
     } else if (/another debugger is already attached|already attached to this tab/.test(low)) {
       fix.push({ type: 'text', html: T('page_fix_devtools') });
     } else {

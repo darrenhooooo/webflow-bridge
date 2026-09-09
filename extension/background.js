@@ -134,6 +134,13 @@ const CONFIG_FETCH_TIMEOUT_MS = 2500;
 const MAX_BACKOFF_MS = 30000;   // reconnect backoff cap (spec)
 const HEARTBEAT_MS = 15000;     // < 30 s MV3 idle limit
 const DEBUGGER_VERSION = '1.3'; // chrome.debugger protocol version
+const IS_EDGE = /Edg\//.test(navigator.userAgent || '');
+// The restricted-site names in the attach-failure footnote are runtime-
+// specific: Chrome users see chrome:// + the Chrome Web Store, Edge users
+// see edge:// + the Edge Add-ons store (mirrors popup.js IS_EDGE).
+const RESTRICTED_SUFFIX = IS_EDGE
+  ? 'edge:// and Edge Add-ons store pages cannot be debugged'
+  : 'chrome:// and Chrome Web Store pages cannot be debugged';
 
 const DEFAULT_PROBE_CODE =
   "(() => ({ url: location.href, title: document.title, probe: 1 + 1 }))()";
@@ -372,7 +379,7 @@ async function ensureDebuggerLocked(tabId) {
       }
       return 'cannot attach debugger to tab ' + tabId + ': ' + text +
              ' (the active tab must be a debuggable page — open a normal ' +
-             'http(s) site; chrome:// and Web Store pages cannot be debugged)';
+             'http(s) site; ' + RESTRICTED_SUFFIX + ')';
     }
   }
   return 'cannot attach debugger to tab ' + tabId;
