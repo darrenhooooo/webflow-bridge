@@ -53,11 +53,10 @@ Run JS and CDP commands on your active tab from a local daemon. Browser-automati
 >      -d '{"action":"evaluate","args":{"code":"(() => document.title)()"},"session":"default"}'
 >    ```
 >
-> **Open source.** MIT-licensed at <https://github.com/<your-org>/webflow-bridge>
-> (placeholder — fill in before upload).
+> **Open source.** MIT-licensed at <https://github.com/darrenhooooo/webflow-bridge>
 >
 > **Support / feedback.** File an issue at the GitHub repo above, or contact
-> <you@example.com> (placeholder).
+> <darren.hou@outlook.com>
 
 ## Sensitive-permission justifications (paste into the review form)
 

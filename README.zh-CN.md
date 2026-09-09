@@ -5,7 +5,7 @@
 > 免费、本地的浏览器自动化桥 —— 驱动你**真实、已登录**的 Chrome 或 Edge。
 > 无云、无账号。
 
-**许可证:** MIT。
+**许可证:** MIT。  **GitHub:** [darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge) — ⭐ Star · 🐛 Issues · ✉️ darren.hou@outlook.com
 
 **支持:** macOS 与 Windows 上的 Chrome 与 Microsoft Edge（Chromium MV3 ——
 两浏览器 chrome.debugger API 完全一致）。**Firefox:** 独立 Firefox 版（WebDriver BiDi 架构）——
@@ -410,3 +410,11 @@ CDP 会话只作用于它 attach 的那个标签, 并在同标签导航后存活
 - 扩展手动加载(开发者模式 → 加载已解压), 永不自动安装; 不触碰浏览器 profile。
 - daemon 只用 Python 标准库。
 - 隐私: 全部本地, 无云无账号; 见 `docs/PRIVACY.md`。
+
+## 支持与反馈
+
+Webflow Bridge 免费开源(MIT)。如果它帮你省了时间:
+
+- ⭐ 点个 Star — [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
+- 🐛 报 Bug / 提需求 — [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
+- ✉️ 联系 — darren.hou@outlook.com

@@ -4,7 +4,7 @@
 
 > A free, local browser-automation bridge for your real, already-logged-in Chrome or Edge. No cloud, no accounts.
 
-**License:** MIT.
+**License:** MIT.  **GitHub:** [darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge) — ⭐ star · 🐛 issues · ✉️ darren.hou@outlook.com
 
 **Supported:** Chrome & Microsoft Edge on macOS and Windows (Chromium MV3 — identical chrome.debugger API). Firefox has a separate Firefox edition (WebDriver BiDi) - see [ff/README.md](ff/README.md). Not supported: Safari.
 
@@ -384,3 +384,11 @@ Details:
 - Extension is loaded manually (Developer mode → Load unpacked) and never
   auto-installed; no browser profiles are touched.
 - Daemon uses Python stdlib only.
+
+## Support & feedback
+
+Webflow Bridge is free and open source (MIT). If it saves you time:
+
+- ⭐ Star the repo — [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
+- 🐛 Report bugs / request features — [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
+- ✉️ Contact — darren.hou@outlook.com
