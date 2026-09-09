@@ -27,12 +27,13 @@
   --busy-tint: rgba(52, 168, 83, 0.12);
   --shadow-card: 0 1px 2px rgba(60, 64, 67, 0.3),
                  0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  /* 主卡填充态（终版整卡状态显示器）：实色填充两种主题下均配白字 */
-  --card-inactive: #d93025;
-  --card-inactive-hover: #b31412;
-  --card-active: #188038;
-  --card-active-hover: #137333;
-  --on-fill: #ffffff;
+  /* 主卡填充态（终版整卡状态显示器）：微信截取色 + 白字白点，两种主题同组值 */
+  --card-inactive: #F65E5D;        /* 微信截取红（未激活） */
+  --card-inactive-hover: #E0504C;  /* 略深 */
+  --card-active: #3AC97E;          /* 微信截取绿（已激活） */
+  --card-active-hover: #2FB66D;    /* 略深 */
+  --card-inactive-ink: #ffffff;    /* 白（文字/状态点） */
+  --card-active-ink: #ffffff;      /* 白（文字/状态点） */
   --mono: "Cascadia Mono", Consolas, ui-monospace, "SF Mono", Menlo, monospace;
 }
 
@@ -202,7 +203,7 @@ html, body {
 #mainCard[data-state="inactive"] {
   background: var(--card-inactive);
   border-color: transparent;
-  color: var(--on-fill);
+  color: var(--card-inactive-ink);
 }
 #mainCard[data-state="inactive"]:hover:not([aria-disabled="true"]) {
   background: var(--card-inactive-hover);
@@ -211,17 +212,20 @@ html, body {
 #mainCard[data-state="active"] {
   background: var(--card-active);
   border-color: transparent;
-  color: var(--on-fill);
+  color: var(--card-active-ink);
 }
 #mainCard[data-state="active"]:hover:not([aria-disabled="true"]) {
   background: var(--card-active-hover);
 }
 
-/* 填充态下状态点为白色小圆 + 柔和光环 */
-#mainCard[data-state="inactive"] .main-dot,
+/* 填充态下状态点为白色小圆（与文字同色）+ 柔和白色光环 */
+#mainCard[data-state="inactive"] .main-dot {
+  background: var(--card-inactive-ink);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
 #mainCard[data-state="active"] .main-dot {
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28);
+  background: var(--card-active-ink);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
 }
 
 #mainCard:active { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25); }

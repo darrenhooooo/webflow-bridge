@@ -23,13 +23,15 @@
   --err-border: rgba(217, 48, 37, 0.45);
   --shadow-card: 0 1px 2px rgba(60, 64, 67, 0.3),
                  0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  /* main-card fill states (whole-card status display): solid fills keep
-     white text in both themes (these tokens never swap in dark mode) */
-  --card-inactive: #d93025;
-  --card-inactive-hover: #b31412;
-  --card-active: #188038;
-  --card-active-hover: #137333;
-  --on-fill: #ffffff;
+  /* main-card fill states (whole-card status display): WeChat screenshot
+     fills with white text/dot, both themes (these tokens never swap in
+     dark mode) */
+  --card-inactive: #F65E5D;        /* WeChat screenshot red (inactive) */
+  --card-inactive-hover: #E0504C;  /* slightly deeper */
+  --card-active: #3AC97E;          /* WeChat screenshot green (active) */
+  --card-active-hover: #2FB66D;    /* slightly deeper */
+  --card-inactive-ink: #ffffff;    /* white (text + dot) on inactive */
+  --card-active-ink: #ffffff;      /* white (text + dot) on active */
   --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
 }
 
@@ -158,7 +160,7 @@ body {
 .main-card[data-state="inactive"] {
   background: var(--card-inactive);
   border-color: transparent;
-  color: var(--on-fill);
+  color: var(--card-inactive-ink);
 }
 .main-card[data-state="inactive"]:hover:not([aria-disabled="true"]) {
   background: var(--card-inactive-hover);
@@ -168,17 +170,21 @@ body {
 .main-card[data-state="active"] {
   background: var(--card-active);
   border-color: transparent;
-  color: var(--on-fill);
+  color: var(--card-active-ink);
 }
 .main-card[data-state="active"]:hover:not([aria-disabled="true"]) {
   background: var(--card-active-hover);
 }
 
-/* on the two filled states the dot is a white disc with a soft halo */
-.main-card[data-state="inactive"] .dot,
+/* on the two filled states the dot is white like the text, with a soft
+   white halo */
+.main-card[data-state="inactive"] .dot {
+  background: var(--card-inactive-ink);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
 .main-card[data-state="active"] .dot {
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28);
+  background: var(--card-active-ink);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
 }
 
 .main-card:active { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25); }
