@@ -25,6 +25,23 @@
   const DAEMON_UV_CMD = 'uv run --python 3.11 daemon/webflow_bridge.py';
   const EXT_URL = IS_EDGE ? 'edge://extensions' : 'chrome://extensions';
 
+  // Inline SVG icons for the code-box copy button (12×12, stroke follows
+  // currentColor). Icon-only button: success swaps to a check + .copied
+  // (green), failure flashes .copy-failed (red) — never text feedback.
+  const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" width="12" height="12" '
+                      + 'fill="none" stroke="currentColor" stroke-width="2" '
+                      + 'stroke-linecap="round" stroke-linejoin="round" '
+                      + 'aria-hidden="true">'
+                      + '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
+                      + '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'
+                      + '</svg>';
+  const DONE_ICON_SVG = '<svg viewBox="0 0 24 24" width="12" height="12" '
+                      + 'fill="none" stroke="currentColor" stroke-width="2" '
+                      + 'stroke-linecap="round" stroke-linejoin="round" '
+                      + 'aria-hidden="true">'
+                      + '<path d="M20 6 9 17l-5-5"/>'
+                      + '</svg>';
+
   const versionEl = document.getElementById('version');
   const mainCard = document.getElementById('mainCard');
   const mainWord = document.getElementById('mainWord');
@@ -91,8 +108,8 @@
   }
 
   // ------------------------------------------------------------------
-  // Activation checklist (方案A). Rows: Daemon running / Extension ready /
-  // Active tab debug-able. A failing row carries its own fix: only static
+  // Activation checklist (方案A). Rows: Extension ready / Daemon running /
+  // Active tab debug-able (ext first — Darren). A failing row carries its own fix: only static
   // template copy goes through innerHTML; anything dynamic (raw daemon
   // errors) is always rendered via textContent.
   // ------------------------------------------------------------------
@@ -122,8 +139,8 @@
   function daemonFix() {
     const fix = [];
     fix.push({ type: 'text', html: T('daemon_lead') });
-    fix.push({ type: 'cmd', label: T('cmd_python'), cmd: DAEMON_CMD });
-    fix.push({ type: 'cmd', label: T('cmd_uv'), cmd: DAEMON_UV_CMD });
+    fix.push({ type: 'cmd', cmd: DAEMON_CMD });
+    fix.push({ type: 'cmd', cmd: DAEMON_UV_CMD });
     fix.push({ type: 'text', html: T('daemon_fix_wait') });
     return fix;
   }
@@ -187,21 +204,19 @@
           el.innerHTML = item.html;            // static template copy only
           box.appendChild(el);
         } else if (item.type === 'cmd') {
+          // Code-box row with an embedded copy button (GitHub style): the
+          // code fills the box, the icon-only button floats at its right
+          // edge. item.label is deliberately ignored (labels are gone).
           const row = document.createElement('div');
           row.className = 'wiz-cmd';
-          if (item.label) {
-            const lb = document.createElement('span');
-            lb.className = 'wiz-cmd-label';
-            lb.textContent = item.label;
-            row.appendChild(lb);
-          }
           const code = document.createElement('code');
           code.textContent = item.cmd;
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'copy-btn';
           btn.dataset.cmd = item.cmd;
-          btn.textContent = T('copy');
+          btn.setAttribute('aria-label', T('copy'));
+          btn.innerHTML = COPY_ICON_SVG;
           btn.addEventListener('click', () => copyCmd(btn));
           row.appendChild(code);
           row.appendChild(btn);
@@ -227,7 +242,7 @@
 
   function renderRows(rows) {
     clearRows();
-    for (const key of ['daemon', 'ext', 'page']) {
+    for (const key of ['ext', 'daemon', 'page']) {
       const r = rows[key];
       addRow(ROW_NAMES[key], r.state,
              r.fix || (r.note ? [{ type: 'note', text: r.note }] : null));
@@ -258,13 +273,18 @@
   async function copyCmd(btn) {
     if (btn.disabled) return;
     const ok = await copyText(btn.dataset.cmd || '');
-    const prev = btn.textContent;
-    btn.textContent = ok ? T('copied') : T('copy_failed');
-    btn.classList.toggle('copied', ok);
     btn.disabled = true;
+    if (ok) {
+      // Icon-state feedback: green check for 1.5s, then restore the copy icon.
+      btn.classList.add('copied');
+      btn.innerHTML = DONE_ICON_SVG;
+    } else {
+      // Failure: brief red flash on the icon button, then restore.
+      btn.classList.add('copy-failed');
+    }
     setTimeout(() => {
-      btn.textContent = prev;
-      btn.classList.remove('copied');
+      btn.classList.remove('copied', 'copy-failed');
+      btn.innerHTML = COPY_ICON_SVG;
       btn.disabled = false;
     }, 1500);
   }
@@ -289,7 +309,7 @@
   async function diagnose(pageErrHint) {
     showWizard();
     clearRows();
-    for (const key of ['daemon', 'ext', 'page']) {
+    for (const key of ['ext', 'daemon', 'page']) {
       addRow(ROW_NAMES[key], 'busy', null);
     }
 
