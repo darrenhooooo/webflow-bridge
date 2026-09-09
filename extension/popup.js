@@ -141,17 +141,19 @@
   function pageFix(errText) {
     const low = String(errText || '').toLowerCase();
     const fix = [];
+    let suppressRaw = false;
     if (/cannot attach debugger to tab|cannot be debugged|must be a debuggable page|no active tab found/.test(low)) {
       fix.push({ type: 'text', html: T('page_fix_switch') });
       fix.push({ type: 'text',
                  html: T(IS_EDGE ? 'page_fix_restricted_edge' : 'page_fix_restricted') });
+      suppressRaw = true;
     } else if (/another debugger is already attached|already attached to this tab/.test(low)) {
       fix.push({ type: 'text', html: T('page_fix_devtools') });
     } else {
       fix.push({ type: 'text', html: T('page_fix_generic', { ext_url: EXT_URL }) });
       fix.push({ type: 'text', html: T('press_recheck') });
     }
-    if (errText) fix.push({ type: 'raw', text: truncate(errText, MAX_RESULT) });
+    if (errText && !suppressRaw) fix.push({ type: 'raw', text: truncate(errText, MAX_RESULT) });
     return fix;
   }
 
