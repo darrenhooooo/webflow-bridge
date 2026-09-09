@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write             # 允许 push 到本仓库
+  workflows: write            # 镜像会更新 .github/workflows/ 自身, 需 workflows 权限 (GitHub App 规则)
 
 jobs:
   sync:
