@@ -6,19 +6,43 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
+  <!-- Header: logo + title + version chip (version filled from manifest) -->
   <header class="head">
-    <h1>Webflow Bridge</h1>
+    <img class="logo" src="assets/icons/icon128.png"
+         alt="Webflow Bridge logo" width="20" height="20">
+    <h1 class="title">Webflow Bridge</h1>
     <span id="version" class="version">v…</span>
   </header>
 
-  <div class="status">
-    <span id="dot" class="dot dot-check" aria-hidden="true"></span>
-    <span id="statusText">Daemon: checking…</span>
+  <!-- Main card = the whole-card status display (整卡状态显示器). role=button /
+       tabindex make the whole card clickable; content is one dot + the state
+       word, horizontally centred. data-state drives the card surface:
+       checking (neutral grey, probing) / inactive (red fill — click opens the
+       activation checklist below) / active (green fill — click runs one real
+       evaluate → friendly confirmation). Port / local-daemon rows removed; the
+       version appears only in the header above. -->
+  <div id="mainCard" role="button" tabindex="0" aria-disabled="true"
+       class="card main-card" data-state="checking">
+    <span class="dot" aria-hidden="true"></span>
+    <span id="mainWord" class="main-word">Checking…</span>
   </div>
 
-  <button id="testBtn" type="button">Test on active tab</button>
+  <!-- Activation checklist: one row per condition; a failing row carries the
+       fix steps (real daemon command + Copy button, reload URL, page switch). -->
+  <section id="wizard" class="card wizard hidden">
+    <div class="wiz-head">
+      <h2 class="wiz-title" data-i18n="wizard_title">Activation checklist</h2>
+    </div>
+    <ul id="wizRows" class="wiz-rows"></ul>
+    <div class="wiz-actions">
+      <button id="recheckBtn" type="button" class="wiz-recheck" data-i18n="recheck">Re-check</button>
+    </div>
+  </section>
+
+  <!-- Friendly confirmation shown once the Active channel is verified -->
   <pre id="result" class="result hidden"></pre>
 
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

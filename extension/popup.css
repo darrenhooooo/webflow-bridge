@@ -1,116 +1,422 @@
-/* Webflow Bridge popup — dark, compact, no external resources. */
+/* Webflow Bridge popup — Chrome/Material style, follows system theme.
+ * Light is the default; the (prefers-color-scheme: dark) block below only
+ * swaps the tokens. No external resources (fonts/icons/CDN). */
+
 :root {
-  color-scheme: dark;
-  --bg: #0A0A0A;
-  --accent: #00B8D4;
-  --fg: #ffffff;
-  --muted: #98a2ad;
-  --panel: #0e1116;
-  --border: #2a2f36;
-  --ok: #2ecc71;
-  --bad: #ff5252;
+  color-scheme: light dark;
+
+  /* Chrome/Material tokens */
+  --bg: #ffffff;
+  --surface: #f8f9fa;        /* cards */
+  --surface-2: #f1f3f4;      /* hover / code fields */
+  --border: #dadce0;         /* 1px hairlines */
+  --text: #202124;
+  --text-muted: #5f6368;
+  --primary: #34a853;        /* Google Green */
+  --primary-hover: #188038;
+  --on-primary: #ffffff;
+  --success: #188038;
+  --error: #d93025;
+  --ok-tint: rgba(24, 128, 56, 0.08);
+  --err-tint: rgba(217, 48, 37, 0.07);
+  --ok-border: rgba(24, 128, 56, 0.45);
+  --err-border: rgba(217, 48, 37, 0.45);
+  --shadow-card: 0 1px 2px rgba(60, 64, 67, 0.3),
+                 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  /* main-card fill states (whole-card status display): solid fills keep
+     white text in both themes (these tokens never swap in dark mode) */
+  --card-inactive: #d93025;
+  --card-inactive-hover: #b31412;
+  --card-active: #188038;
+  --card-active-hover: #137333;
+  --on-fill: #ffffff;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202124;
+    --surface: #292a2d;
+    --surface-2: #3c4043;
+    --border: #3c4043;
+    --text: #e8eaed;
+    --text-muted: #9aa0a6;
+    --primary: #81c995;      /* light green on dark */
+    --primary-hover: #a2d9b3;
+    --on-primary: #052e16;
+    --success: #81c995;
+    --error: #f28b82;
+    --ok-tint: rgba(129, 201, 149, 0.12);
+    --err-tint: rgba(242, 139, 130, 0.10);
+    --ok-border: rgba(129, 201, 149, 0.45);
+    --err-border: rgba(242, 139, 130, 0.45);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3),
+                   0 1px 3px 1px rgba(0, 0, 0, 0.3);
+  }
 }
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
+.hidden { display: none; }   /* popup.js toggles this class on #result / #wizard */
+
 body {
-  width: 300px;
+  width: 320px;
   margin: 0;
-  padding: 14px 16px 16px;
+  padding: 12px 16px 10px;
   background: var(--bg);
-  color: var(--fg);
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---------- header ---------- */
+
 .head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 8px;
 }
 
-h1 {
+.logo {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.title {
   margin: 0;
+  flex: 1;
   font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  color: var(--text);
 }
 
 .version {
-  color: var(--muted);
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
 }
 
-.status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0;
+/* ---------- main card (终版：整卡状态显示器，dot + 状态词水平居中) ----------
+ * The whole card is the status surface AND the activation / verify entry.
+ * data-state drives the entire surface:
+ *   checking (neutral grey, probing, not clickable)
+ *   inactive (red fill; click opens the activation checklist below)
+ *   active   (green fill; click runs one real evaluate → success card)
+ * The version appears once in the header; port / local-daemon rows removed. */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
 }
 
-.dot {
+.main-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;   /* dot + word centred, not left-biased */
+  gap: 10px;
+  width: 100%;
+  margin: 12px 0 0;
+  padding: 15px 14px;
+  text-align: center;
+  font: 600 13.5px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  user-select: none;
+}
+
+.main-card .dot {
+  flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--muted);
-  flex: none;
 }
 
-.dot-check {
-  background: var(--accent);
+/* checking — neutral grey, probing */
+.main-card[data-state="checking"] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-weight: 500;
+  cursor: default;
+}
+.main-card[data-state="checking"] .dot {
+  background: var(--primary);
   animation: pulse 1.1s ease-in-out infinite;
 }
 
-.dot-ok {
-  background: var(--ok);
-  box-shadow: 0 0 6px rgba(46, 204, 113, 0.6);
+/* inactive — red fill */
+.main-card[data-state="inactive"] {
+  background: var(--card-inactive);
+  border-color: transparent;
+  color: var(--on-fill);
+}
+.main-card[data-state="inactive"]:hover:not([aria-disabled="true"]) {
+  background: var(--card-inactive-hover);
 }
 
-.dot-bad {
-  background: var(--bad);
-  box-shadow: 0 0 6px rgba(255, 82, 82, 0.55);
+/* active — green fill */
+.main-card[data-state="active"] {
+  background: var(--card-active);
+  border-color: transparent;
+  color: var(--on-fill);
+}
+.main-card[data-state="active"]:hover:not([aria-disabled="true"]) {
+  background: var(--card-active-hover);
+}
+
+/* on the two filled states the dot is a white disc with a soft halo */
+.main-card[data-state="inactive"] .dot,
+.main-card[data-state="active"] .dot {
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28);
+}
+
+.main-card:active { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25); }
+.main-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.main-word {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @keyframes pulse {
-  50% { opacity: 0.3; }
+  50% { opacity: 0.35; }
 }
 
-#statusText {
-  color: var(--muted);
+/* ---------- activation checklist card ---------- */
+/* One .wiz-row per condition. data-state drives the tint:
+ * ok (green) / bad (red + fix steps) / pending (muted, explains why it
+ * can't run yet) / busy (transient skeleton while diagnosing). */
+
+.wizard {
+  margin-top: 10px;
+  padding: 12px;
 }
 
-#testBtn {
-  width: 100%;
+.wiz-head {
+  margin-bottom: 8px;
+}
+
+.wiz-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.wiz-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.wiz-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: rgba(0, 184, 212, 0.12);
-  color: var(--accent);
-  font-size: 12px;
-  cursor: pointer;
+  background: var(--surface-2);
 }
 
-#testBtn:hover { background: rgba(0, 184, 212, 0.22); }
-#testBtn:active { transform: translateY(1px); }
-#testBtn:disabled { opacity: 0.45; cursor: default; }
+.wiz-row[data-state="ok"] {
+  background: var(--ok-tint);
+  border-color: var(--ok-border);
+}
 
-.result {
-  margin: 10px 0 0;
-  padding: 8px 10px;
+.wiz-row[data-state="bad"] {
+  background: var(--err-tint);
+  border-color: var(--err-border);
+}
+
+.wiz-row[data-state="pending"] { opacity: 0.85; }
+
+.wiz-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wiz-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.wiz-row[data-state="ok"] .wiz-icon {
+  background: var(--ok-tint);
+  border-color: var(--ok-border);
+  color: var(--success);
+}
+.wiz-row[data-state="bad"] .wiz-icon {
+  background: var(--err-tint);
+  border-color: var(--err-border);
+  color: var(--error);
+}
+.wiz-row[data-state="busy"] .wiz-icon {
+  color: var(--primary);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.wiz-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.wiz-fix {
+  margin-top: 6px;
+  display: grid;
+  gap: 5px;
+}
+
+.wiz-step {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.wiz-step code {
+  display: inline-block;
+  padding: 0 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: 10.5px/1.5 var(--mono);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.wiz-cmd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wiz-cmd-label {
+  flex: none;
+  font: 600 10.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.wiz-cmd code {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--panel);
-  color: #d7e0e8;
-  font: 11px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
-  white-space: pre-wrap;
+  font: 10.5px/1.5 var(--mono);
+  color: var(--text);
   word-break: break-all;
-  max-height: 96px;
+  white-space: normal;
+}
+
+.copy-btn {
+  flex: none;
+  padding: 2px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--primary);
+  font: 500 10.5px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copy-btn:hover { background: var(--surface-2); border-color: var(--primary); }
+.copy-btn.copied { color: var(--success); border-color: var(--ok-border); }
+.copy-btn:disabled { opacity: 0.6; cursor: default; }
+
+.wiz-note {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.wiz-rawerr {
+  display: block;
+  padding: 4px 7px;
+  background: var(--bg);
+  border: 1px solid var(--err-border);
+  border-radius: 6px;
+  font: 10.5px/1.5 var(--mono);
+  color: var(--error);
+  word-break: break-all;
+  max-height: 80px;
   overflow: auto;
 }
 
-.result.ok { border-color: rgba(0, 184, 212, 0.5); }
-.result.err { border-color: rgba(255, 82, 82, 0.6); }
+.wiz-actions {
+  margin-top: 10px;
+  display: flex;
+}
 
-.hidden { display: none; }
+.wiz-recheck {
+  width: 100%;
+  padding: 6px 12px;
+  background: var(--bg);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  color: var(--primary);
+  font: 500 12.5px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+}
+
+.wiz-recheck:hover { background: var(--surface-2); }
+.wiz-recheck:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+/* ---------- result card (friendly confirmation, ok) ---------- */
+
+.result {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: 11px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow: auto;
+}
+
+.result.ok {
+  background: var(--ok-tint);
+  border-color: var(--ok-border);
+}
+
+/* ---------- RTL (Arabic) ----------
+ * Layout follows dir="rtl" automatically (flexbox mirrors); only the code
+ * / pre / command runs must stay LTR so paths, URLs and JS don't reorder. */
+
+html[dir="rtl"] code,
+html[dir="rtl"] pre,
+html[dir="rtl"] textarea {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+}
