@@ -100,7 +100,7 @@
   token_off_err: 'daemon is offline — cannot get token',
   copy_fail_perm: '✗ Copy failed (no clipboard permission)',
   token_copied: 'token copied to the clipboard',
-  test_ok: '✓ Extension ready — commands can be executed on the current Firefox tab\nNext step: send a POST from your script or AI agent to http://127.0.0.1:10096/command to drive this tab (protocol: see ff/README.md)'
+  test_ok: 'Extension ready — commands can be executed on the current Firefox tab\nNext step: send a POST from your script or AI agent to http://127.0.0.1:10096/command to drive this tab (protocol: see ff/README.md)'
 },
 
 'zh-CN': {
@@ -186,7 +186,7 @@
   token_off_err: 'daemon 离线，无法获取 token',
   copy_fail_perm: '✗ 复制失败（无剪贴板权限）',
   token_copied: 'token 已复制到剪贴板',
-  test_ok: '✓ 扩展已就绪 — 可在当前 Firefox 标签页执行命令\n下一步：从你的脚本或 AI agent 向 http://127.0.0.1:10096/command 发送 POST 即可驱动此标签页（协议见 ff/README.md）'
+  test_ok: '扩展已就绪 — 可在当前 Firefox 标签页执行命令\n下一步：从你的脚本或 AI agent 向 http://127.0.0.1:10096/command 发送 POST 即可驱动此标签页（协议见 ff/README.md）'
 },
 
 'zh-TW': {
@@ -272,7 +272,7 @@
   token_off_err: 'daemon 離線，無法取得 token',
   copy_fail_perm: '✗ 複製失敗（無剪貼簿權限）',
   token_copied: 'token 已複製到剪貼簿',
-  test_ok: '✓ 擴充功能已就緒 — 可在目前 Firefox 分頁執行命令\n下一步：從你的腳本或 AI agent 向 http://127.0.0.1:10096/command 傳送 POST 即可驅動此分頁（協定見 ff/README.md）'
+  test_ok: '擴充功能已就緒 — 可在目前 Firefox 分頁執行命令\n下一步：從你的腳本或 AI agent 向 http://127.0.0.1:10096/command 傳送 POST 即可驅動此分頁（協定見 ff/README.md）'
 },
 
 'ja': {
@@ -358,7 +358,7 @@
   token_off_err: 'daemon オフラインのため token を取得できません',
   copy_fail_perm: '✗ コピーに失敗しました（クリップボード権限がありません）',
   token_copied: 'token をクリップボードにコピーしました',
-  test_ok: '✓ 拡張機能は準備完了です — 現在の Firefox タブでコマンドを実行できます\n次のステップ：スクリプトまたは AI エージェントから http://127.0.0.1:10096/command へ POST を送信すると、このタブを操作できます（プロトコルは ff/README.md を参照）'
+  test_ok: '拡張機能は準備完了です — 現在の Firefox タブでコマンドを実行できます\n次のステップ：スクリプトまたは AI エージェントから http://127.0.0.1:10096/command へ POST を送信すると、このタブを操作できます（プロトコルは ff/README.md を参照）'
 },
 
 'ko': {
@@ -444,7 +444,7 @@
   token_off_err: 'daemon이 오프라인이라 token을 가져올 수 없습니다',
   copy_fail_perm: '✗ 복사 실패(클립보드 권한 없음)',
   token_copied: 'token을 클립보드에 복사했습니다',
-  test_ok: '✓ 확장 프로그램이 준비되었습니다 — 현재 Firefox 탭에서 명령을 실행할 수 있습니다\n다음 단계: 스크립트나 AI 에이전트에서 http://127.0.0.1:10096/command로 POST를 보내면 이 탭을 구동할 수 있습니다(프로토콜: ff/README.md 참조)'
+  test_ok: '확장 프로그램이 준비되었습니다 — 현재 Firefox 탭에서 명령을 실행할 수 있습니다\n다음 단계: 스크립트나 AI 에이전트에서 http://127.0.0.1:10096/command로 POST를 보내면 이 탭을 구동할 수 있습니다(프로토콜: ff/README.md 참조)'
 },
 
 'fr': {
@@ -530,7 +530,7 @@
   token_off_err: 'daemon hors ligne — impossible d’obtenir le jeton',
   copy_fail_perm: '✗ Échec de la copie (pas de permission presse-papiers)',
   token_copied: 'jeton copié dans le presse-papiers',
-  test_ok: '✓ L’extension est prête — vous pouvez exécuter des commandes sur l’onglet Firefox actuel\nÉtape suivante : envoyez un POST depuis votre script ou agent IA vers http://127.0.0.1:10096/command pour piloter cet onglet (protocole : voir ff/README.md)'
+  test_ok: 'L’extension est prête — vous pouvez exécuter des commandes sur l’onglet Firefox actuel\nÉtape suivante : envoyez un POST depuis votre script ou agent IA vers http://127.0.0.1:10096/command pour piloter cet onglet (protocole : voir ff/README.md)'
 },
 
 'de': {
@@ -616,7 +616,7 @@
   token_off_err: 'Daemon offline – Token kann nicht abgerufen werden',
   copy_fail_perm: '✗ Kopieren fehlgeschlagen (keine Zwischenablage-Berechtigung)',
   token_copied: 'Token in die Zwischenablage kopiert',
-  test_ok: '✓ Die Erweiterung ist bereit — auf dem aktuellen Firefox-Tab können Befehle ausgeführt werden\nNächster Schritt: Senden Sie einen POST von Ihrem Skript oder AI-Agenten an http://127.0.0.1:10096/command, um diesen Tab zu steuern (Protokoll: siehe ff/README.md)'
+  test_ok: 'Die Erweiterung ist bereit — auf dem aktuellen Firefox-Tab können Befehle ausgeführt werden\nNächster Schritt: Senden Sie einen POST von Ihrem Skript oder AI-Agenten an http://127.0.0.1:10096/command, um diesen Tab zu steuern (Protokoll: siehe ff/README.md)'
 },
 
 'es': {
@@ -702,7 +702,7 @@
   token_off_err: 'daemon desconectado: no se puede obtener el token',
   copy_fail_perm: '✗ Error al copiar (sin permiso de portapapeles)',
   token_copied: 'token copiado al portapapeles',
-  test_ok: '✓ La extensión está lista — puedes ejecutar comandos en la pestaña actual de Firefox\nSiguiente paso: envía un POST desde tu script o agente de IA a http://127.0.0.1:10096/command para controlar esta pestaña (protocolo: ver ff/README.md)'
+  test_ok: 'La extensión está lista — puedes ejecutar comandos en la pestaña actual de Firefox\nSiguiente paso: envía un POST desde tu script o agente de IA a http://127.0.0.1:10096/command para controlar esta pestaña (protocolo: ver ff/README.md)'
 },
 
 'pt': {
@@ -788,7 +788,7 @@
   token_off_err: 'daemon offline — não foi possível obter o token',
   copy_fail_perm: '✗ Falha ao copiar (sem permissão de área de transferência)',
   token_copied: 'token copiado para a área de transferência',
-  test_ok: '✓ A extensão está pronta — é possível executar comandos na aba atual do Firefox\nPróximo passo: envie um POST do seu script ou agente de IA para http://127.0.0.1:10096/command para acionar esta aba (protocolo: consulte ff/README.md)'
+  test_ok: 'A extensão está pronta — é possível executar comandos na aba atual do Firefox\nPróximo passo: envie um POST do seu script ou agente de IA para http://127.0.0.1:10096/command para acionar esta aba (protocolo: consulte ff/README.md)'
 },
 
 'ru': {
@@ -874,7 +874,7 @@
   token_off_err: 'daemon не в сети — невозможно получить token',
   copy_fail_perm: '✗ Не удалось скопировать (нет разрешения на буфер обмена)',
   token_copied: 'token скопирован в буфер обмена',
-  test_ok: '✓ Расширение готово — на текущей вкладке Firefox можно выполнять команды\nСледующий шаг: отправьте POST из своего скрипта или ИИ-агента на http://127.0.0.1:10096/command, чтобы управлять этой вкладкой (протокол — см. ff/README.md)'
+  test_ok: 'Расширение готово — на текущей вкладке Firefox можно выполнять команды\nСледующий шаг: отправьте POST из своего скрипта или ИИ-агента на http://127.0.0.1:10096/command, чтобы управлять этой вкладкой (протокол — см. ff/README.md)'
 },
 
 'ar': {
@@ -960,7 +960,7 @@
   token_off_err: 'الدايمون غير متصل — لا يمكن الحصول على token',
   copy_fail_perm: '✗ فشل النسخ (لا يوجد إذن للحافظة)',
   token_copied: 'تم نسخ token إلى الحافظة',
-  test_ok: '✓ الإضافة جاهزة — يمكن تنفيذ الأوامر في تبويب Firefox الحالي\nالخطوة التالية: أرسل طلب POST من السكربت أو وكيل الذكاء الاصطناعي إلى http://127.0.0.1:10096/command لتشغيل هذا التبويب (البروتوكول: راجع ff/README.md)'
+  test_ok: 'الإضافة جاهزة — يمكن تنفيذ الأوامر في تبويب Firefox الحالي\nالخطوة التالية: أرسل طلب POST من السكربت أو وكيل الذكاء الاصطناعي إلى http://127.0.0.1:10096/command لتشغيل هذا التبويب (البروتوكول: راجع ff/README.md)'
 },
 
 'it': {
@@ -1046,7 +1046,7 @@
   token_off_err: 'daemon offline — impossibile ottenere il token',
   copy_fail_perm: '✗ Copia non riuscita (nessun permesso per gli appunti)',
   token_copied: 'token copiato negli appunti',
-  test_ok: '✓ L’estensione è pronta — puoi eseguire comandi nella scheda Firefox corrente\nPasso successivo: invia una POST dal tuo script o agente AI a http://127.0.0.1:10096/command per pilotare questa scheda (protocollo: vedi ff/README.md)'
+  test_ok: 'L’estensione è pronta — puoi eseguire comandi nella scheda Firefox corrente\nPasso successivo: invia una POST dal tuo script o agente AI a http://127.0.0.1:10096/command per pilotare questa scheda (protocollo: vedi ff/README.md)'
 }
 
   };
