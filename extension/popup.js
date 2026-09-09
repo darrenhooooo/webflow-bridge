@@ -130,7 +130,8 @@
 
   function extFix() {
     const fix = [];
-    fix.push({ type: 'text', html: T('ext_fix_1', { ext_url: EXT_URL }) });
+    fix.push({ type: 'text', html: T('ext_fix_1') });   // pure guide text
+    fix.push({ type: 'cmd', cmd: EXT_URL });            // copyable extensions-URL row
     fix.push({ type: 'text', html: T('ext_fix_2') });
     fix.push({ type: 'text', html: T('press_recheck') });
     return fix;
@@ -150,7 +151,8 @@
     } else if (/another debugger is already attached|already attached to this tab/.test(low)) {
       fix.push({ type: 'text', html: T('page_fix_devtools') });
     } else {
-      fix.push({ type: 'text', html: T('page_fix_generic', { ext_url: EXT_URL }) });
+      fix.push({ type: 'text', html: T('page_fix_generic') });
+      fix.push({ type: 'cmd', cmd: EXT_URL });   // copyable extensions-URL row to reload it
       fix.push({ type: 'text', html: T('press_recheck') });
     }
     if (errText && !suppressRaw) fix.push({ type: 'raw', text: truncate(errText, MAX_RESULT) });

@@ -41,14 +41,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Wait for the <b>“Webflow Bridge daemon started”</b> banner, then press <b>Re-check</b> below.',
-  ext_fix_1: 'Open <code>{ext_url}</code> and make sure <b>Developer mode</b> is on.',
+  ext_fix_1: 'Open the extensions page and make sure <b>Developer mode</b> is on.',
   ext_fix_2: 'Find <b>Webflow Bridge</b> and click its <b>Reload</b> button.',
   press_recheck: 'Then press <b>Re-check</b> below.',
   page_fix_switch: 'Switch the browser to a normal webpage tab — any http:// or https:// site.',
   page_fix_restricted: 'chrome:// pages, the Chrome Web Store and new-tab pages can’t be driven.',
   page_fix_restricted_edge: 'edge:// pages, the Edge Add-ons store and new-tab pages can’t be driven.',
   page_fix_devtools: 'Another debugger — usually DevTools (F12) — is attached to the active tab. Close it, then press <b>Re-check</b> below.',
-  page_fix_generic: 'The active tab can’t be driven right now. Switch to a normal http(s) page; if it keeps failing, close DevTools (F12) on the tab, reload the extension at <code>{ext_url}</code> and try again.'
+  page_fix_generic: 'The active tab can’t be driven right now. Switch to a normal http(s) page; if it keeps failing, close DevTools (F12) on the tab, then reload the extension using the command below and try again.'
 },
 
 'zh-CN': {
@@ -72,14 +72,14 @@
   cmd_python: 'Python：',
   cmd_uv: 'uv：',
   daemon_fix_wait: '看到“Webflow Bridge daemon started”横幅后，点击下方<b>重新检查</b>。',
-  ext_fix_1: '打开 <code>{ext_url}</code>，确认已开启<b>开发者模式</b>。',
+  ext_fix_1: '打开扩展管理页，确认已开启<b>开发者模式</b>。',
   ext_fix_2: '找到 <b>Webflow Bridge</b>，点击其<b>重新加载</b>按钮。',
   press_recheck: '然后点击下方<b>重新检查</b>。',
   page_fix_switch: '将浏览器切换到普通网页标签页 — 任意 http:// 或 https:// 网站。',
   page_fix_restricted: 'chrome:// 页面、Chrome 应用商店和新标签页无法驱动。',
   page_fix_restricted_edge: 'edge:// 页面、Edge 加载项商店和新标签页无法驱动。',
   page_fix_devtools: '当前标签页已被另一个调试器 — 通常是 DevTools（F12）— 附加。关闭它，然后点击下方<b>重新检查</b>。',
-  page_fix_generic: '当前标签页暂时无法驱动。请切换到普通 http(s) 页面；若仍失败，关闭该标签页上的 DevTools（F12），在 <code>{ext_url}</code> 重新加载扩展后再试。'
+  page_fix_generic: '当前标签页暂时无法驱动。请切换到普通 http(s) 页面；若仍失败，关闭该标签页上的 DevTools（F12），然后用下方命令重新加载扩展再试。'
 },
 
 'zh-TW': {
@@ -103,14 +103,14 @@
   cmd_python: 'Python：',
   cmd_uv: 'uv：',
   daemon_fix_wait: '看到「Webflow Bridge daemon started」橫幅後，點擊下方<b>重新檢查</b>。',
-  ext_fix_1: '開啟 <code>{ext_url}</code>，確認已開啟<b>開發人員模式</b>。',
+  ext_fix_1: '開啟擴充功能管理頁，確認已開啟<b>開發人員模式</b>。',
   ext_fix_2: '找到 <b>Webflow Bridge</b>，點擊其<b>重新載入</b>按鈕。',
   press_recheck: '然後點擊下方<b>重新檢查</b>。',
   page_fix_switch: '將瀏覽器切換到一般網頁分頁 — 任意 http:// 或 https:// 網站。',
   page_fix_restricted: 'chrome:// 頁面、Chrome 線上應用程式商店與新分頁無法驅動。',
   page_fix_restricted_edge: 'edge:// 頁面、Edge 附加元件商店與新分頁無法驅動。',
   page_fix_devtools: '目前分頁已被另一個偵錯工具 — 通常是 DevTools（F12）— 附加。關閉它，然後點擊下方<b>重新檢查</b>。',
-  page_fix_generic: '目前分頁暫時無法驅動。請切換到一般 http(s) 頁面；若仍失敗，關閉該分頁上的 DevTools（F12），在 <code>{ext_url}</code> 重新載入擴充功能後再試。'
+  page_fix_generic: '目前分頁暫時無法驅動。請切換到一般 http(s) 頁面；若仍失敗，關閉該分頁上的 DevTools（F12），然後用下方命令重新載入擴充功能再試。'
 },
 
 'ja': {
@@ -134,14 +134,14 @@
   cmd_python: 'Python：',
   cmd_uv: 'uv：',
   daemon_fix_wait: '“Webflow Bridge daemon started” のバナーが表示されたら、下の<b>再チェック</b>を押してください。',
-  ext_fix_1: '<code>{ext_url}</code> を開き、<b>デベロッパー モード</b>をオンにしてください。',
+  ext_fix_1: '拡張機能の管理ページを開き、<b>デベロッパー モード</b>をオンにしてください。',
   ext_fix_2: '<b>Webflow Bridge</b> を探して<b>再読み込み</b>ボタンをクリックしてください。',
   press_recheck: 'その後、下の<b>再チェック</b>を押してください。',
   page_fix_switch: 'ブラウザを通常のウェブページのタブに切り替えてください — http:// や https:// のサイト。',
   page_fix_restricted: 'chrome:// ページ、Chrome ウェブストア、新規タブページは操作できません。',
   page_fix_restricted_edge: 'edge:// ページ、Edge アドオンストア、新規タブページは操作できません。',
   page_fix_devtools: '別のデバッガー（通常は DevTools（F12））がアクティブなタブにアタッチされています。閉じてから、下の<b>再チェック</b>を押してください。',
-  page_fix_generic: '現在アクティブなタブを操作できません。通常の http(s) ページに切り替えてください。それでも失敗する場合は、タブの DevTools（F12）を閉じ、<code>{ext_url}</code> で拡張機能を再読み込みしてもう一度お試しください。'
+  page_fix_generic: '現在アクティブなタブを操作できません。通常の http(s) ページに切り替えてください。それでも失敗する場合は、タブの DevTools（F12）を閉じ、下のコマンドで拡張機能を再読み込みしてもう一度お試しください。'
 },
 
 'ko': {
@@ -165,14 +165,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: '“Webflow Bridge daemon started” 배너가 보이면 아래의 <b>다시 확인</b>을 누르세요.',
-  ext_fix_1: '<code>{ext_url}</code>을 열고 <b>개발자 모드</b>가 켜져 있는지 확인하세요.',
+  ext_fix_1: '확장 프로그램 관리 페이지를 열고 <b>개발자 모드</b>가 켜져 있는지 확인하세요.',
   ext_fix_2: '<b>Webflow Bridge</b>를 찾아 <b>다시 로드</b> 버튼을 클릭하세요.',
   press_recheck: '그런 다음 아래의 <b>다시 확인</b>을 누르세요.',
   page_fix_switch: '브라우저를 일반 웹페이지 탭으로 전환하세요 — http:// 또는 https:// 사이트.',
   page_fix_restricted: 'chrome:// 페이지, Chrome 웹 스토어, 새 탭 페이지는 구동할 수 없습니다.',
   page_fix_restricted_edge: 'edge:// 페이지, Edge 부가 기능 스토어, 새 탭 페이지는 구동할 수 없습니다.',
   page_fix_devtools: '다른 디버거(보통 DevTools(F12))가 활성 탭에 연결되어 있습니다. 닫은 후 아래의 <b>다시 확인</b>을 누르세요.',
-  page_fix_generic: '현재 활성 탭을 구동할 수 없습니다. 일반 http(s) 페이지로 전환하세요. 계속 실패하면 탭의 DevTools(F12)를 닫고 <code>{ext_url}</code>에서 확장 프로그램을 다시 로드한 후 다시 시도하세요.'
+  page_fix_generic: '현재 활성 탭을 구동할 수 없습니다. 일반 http(s) 페이지로 전환하세요. 계속 실패하면 탭의 DevTools(F12)를 닫고 아래 명령으로 확장 프로그램을 다시 로드한 후 다시 시도하세요.'
 },
 
 'fr': {
@@ -196,14 +196,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Attendez la bannière « Webflow Bridge daemon started », puis appuyez sur <b>Re-vérifier</b> ci-dessous.',
-  ext_fix_1: 'Ouvrez <code>{ext_url}</code> et assurez-vous que le <b>mode développeur</b> est activé.',
+  ext_fix_1: 'Ouvrez la page des extensions et assurez-vous que le <b>mode développeur</b> est activé.',
   ext_fix_2: 'Trouvez <b>Webflow Bridge</b> et cliquez sur son bouton <b>Recharger</b>.',
   press_recheck: 'Puis appuyez sur <b>Re-vérifier</b> ci-dessous.',
   page_fix_switch: 'Passez le navigateur sur un onglet de page web normale — n’importe quel site http:// ou https://.',
   page_fix_restricted: 'Les pages chrome://, le Chrome Web Store et les pages de nouvel onglet ne peuvent pas être pilotées.',
   page_fix_restricted_edge: 'Les pages edge://, la boutique de modules Edge et les pages de nouvel onglet ne peuvent pas être pilotées.',
   page_fix_devtools: 'Un autre débogueur — généralement DevTools (F12) — est attaché à l’onglet actif. Fermez-le, puis appuyez sur <b>Re-vérifier</b> ci-dessous.',
-  page_fix_generic: 'L’onglet actif ne peut pas être piloté pour le moment. Passez à une page http(s) normale ; si cela échoue toujours, fermez DevTools (F12) sur l’onglet, rechargez l’extension dans <code>{ext_url}</code> et réessayez.'
+  page_fix_generic: 'L’onglet actif ne peut pas être piloté pour le moment. Passez à une page http(s) normale ; si cela échoue toujours, fermez DevTools (F12) sur l’onglet, rechargez l’extension avec la commande ci-dessous et réessayez.'
 },
 
 'de': {
@@ -227,14 +227,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Warten Sie auf das Banner „Webflow Bridge daemon started“, dann drücken Sie unten <b>Erneut prüfen</b>.',
-  ext_fix_1: 'Öffnen Sie <code>{ext_url}</code> und stellen Sie sicher, dass der <b>Entwicklermodus</b> aktiviert ist.',
+  ext_fix_1: 'Öffnen Sie die Erweiterungsseite und stellen Sie sicher, dass der <b>Entwicklermodus</b> aktiviert ist.',
   ext_fix_2: 'Suchen Sie <b>Webflow Bridge</b> und klicken Sie auf dessen Schaltfläche <b>Neu laden</b>.',
   press_recheck: 'Drücken Sie anschließend unten <b>Erneut prüfen</b>.',
   page_fix_switch: 'Wechseln Sie den Browser auf einen normalen Webseiten-Tab — jede http://- oder https://-Seite.',
   page_fix_restricted: 'chrome://-Seiten, der Chrome Web Store und neue-Tab-Seiten können nicht gesteuert werden.',
   page_fix_restricted_edge: 'edge://-Seiten, der Edge-Add-ons-Speicher und neue-Tab-Seiten können nicht gesteuert werden.',
   page_fix_devtools: 'Ein anderer Debugger — meist DevTools (F12) — ist am aktiven Tab angehängt. Schließen Sie ihn und drücken Sie unten <b>Erneut prüfen</b>.',
-  page_fix_generic: 'Der aktive Tab kann gerade nicht gesteuert werden. Wechseln Sie auf eine normale http(s)-Seite; falls es weiterhin fehlschlägt, schließen Sie DevTools (F12) auf dem Tab, laden Sie die Erweiterung unter <code>{ext_url}</code> neu und versuchen Sie es erneut.'
+  page_fix_generic: 'Der aktive Tab kann gerade nicht gesteuert werden. Wechseln Sie auf eine normale http(s)-Seite; falls es weiterhin fehlschlägt, schließen Sie DevTools (F12) auf dem Tab, laden Sie die Erweiterung mit dem unten stehenden Befehl neu und versuchen Sie es erneut.'
 },
 
 'es': {
@@ -258,14 +258,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Espera el aviso «Webflow Bridge daemon started» y pulsa <b>Volver a comprobar</b> abajo.',
-  ext_fix_1: 'Abre <code>{ext_url}</code> y asegúrate de que el <b>modo de desarrollador</b> esté activado.',
+  ext_fix_1: 'Abre la página de extensiones y asegúrate de que el <b>modo de desarrollador</b> esté activado.',
   ext_fix_2: 'Busca <b>Webflow Bridge</b> y haz clic en su botón <b>Recargar</b>.',
   press_recheck: 'Después pulsa <b>Volver a comprobar</b> abajo.',
   page_fix_switch: 'Cambia el navegador a una pestaña de página web normal: cualquier sitio http:// o https://.',
   page_fix_restricted: 'Las páginas chrome://, Chrome Web Store y las páginas de pestaña nueva no se pueden controlar.',
   page_fix_restricted_edge: 'Las páginas edge://, Edge Add-ons store y las páginas de pestaña nueva no se pueden controlar.',
   page_fix_devtools: 'Hay otro depurador (normalmente DevTools [F12]) adjunto a la pestaña activa. Ciérralo y pulsa <b>Volver a comprobar</b> abajo.',
-  page_fix_generic: 'La pestaña activa no se puede controlar ahora mismo. Cambia a una página http(s) normal; si sigue fallando, cierra DevTools (F12) en la pestaña, recarga la extensión en <code>{ext_url}</code> e inténtalo de nuevo.'
+  page_fix_generic: 'La pestaña activa no se puede controlar ahora mismo. Cambia a una página http(s) normal; si sigue fallando, cierra DevTools (F12) en la pestaña, recarga la extensión con el comando de abajo e inténtalo de nuevo.'
 },
 
 'pt': {
@@ -289,14 +289,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Aguarde a faixa «Webflow Bridge daemon started» e pressione <b>Re-verificar</b> abaixo.',
-  ext_fix_1: 'Abra <code>{ext_url}</code> e certifique-se de que o <b>modo do desenvolvedor</b> está ativado.',
+  ext_fix_1: 'Abra a página de extensões e certifique-se de que o <b>modo do desenvolvedor</b> está ativado.',
   ext_fix_2: 'Encontre <b>Webflow Bridge</b> e clique no botão <b>Recarregar</b>.',
   press_recheck: 'Depois pressione <b>Re-verificar</b> abaixo.',
   page_fix_switch: 'Mude o navegador para uma aba de página web normal — qualquer site http:// ou https://.',
   page_fix_restricted: 'Páginas chrome://, a Chrome Web Store e páginas de nova aba não podem ser acionadas.',
   page_fix_restricted_edge: 'Páginas edge://, a loja de complementos do Edge e páginas de nova aba não podem ser acionadas.',
   page_fix_devtools: 'Outro depurador — geralmente DevTools (F12) — está anexado à aba ativa. Feche-o e pressione <b>Re-verificar</b> abaixo.',
-  page_fix_generic: 'A aba ativa não pode ser acionada agora. Mude para uma página http(s) normal; se continuar falhando, feche o DevTools (F12) na aba, recarregue a extensão em <code>{ext_url}</code> e tente novamente.'
+  page_fix_generic: 'A aba ativa não pode ser acionada agora. Mude para uma página http(s) normal; se continuar falhando, feche o DevTools (F12) na aba, recarregue a extensão com o comando abaixo e tente novamente.'
 },
 
 'ru': {
@@ -320,14 +320,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Дождитесь баннера «Webflow Bridge daemon started», затем нажмите <b>Проверить снова</b> ниже.',
-  ext_fix_1: 'Откройте <code>{ext_url}</code> и убедитесь, что <b>режим разработчика</b> включён.',
+  ext_fix_1: 'Откройте страницу управления расширениями и убедитесь, что <b>режим разработчика</b> включён.',
   ext_fix_2: 'Найдите <b>Webflow Bridge</b> и нажмите кнопку <b>Перезагрузить</b>.',
   press_recheck: 'Затем нажмите <b>Проверить снова</b> ниже.',
   page_fix_switch: 'Переключите браузер на обычную вкладку веб-страницы — любой сайт http:// или https://.',
   page_fix_restricted: 'Страницы chrome://, Chrome Web Store и страницы новой вкладки не могут управляться.',
   page_fix_restricted_edge: 'Страницы edge://, магазин дополнений Edge и страницы новой вкладки не могут управляться.',
   page_fix_devtools: 'К активной вкладке подключён другой отладчик — обычно DevTools (F12). Закройте его и нажмите <b>Проверить снова</b> ниже.',
-  page_fix_generic: 'Активную вкладку сейчас нельзя отлаживать. Переключитесь на обычную страницу http(s); если это не поможет, закройте DevTools (F12) на вкладке, перезагрузите расширение на <code>{ext_url}</code> и попробуйте ещё раз.'
+  page_fix_generic: 'Активную вкладку сейчас нельзя отлаживать. Переключитесь на обычную страницу http(s); если это не поможет, закройте DevTools (F12) на вкладке, перезагрузите расширение с помощью команды ниже и попробуйте ещё раз.'
 },
 
 'ar': {
@@ -351,14 +351,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'انتظر ظهور شريط "تم بدء تشغيل Webflow Bridge daemon"، ثم اضغط <b>إعادة التحقق</b> أدناه.',
-  ext_fix_1: 'افتح <code>{ext_url}</code> وتأكد من تفعيل <b>وضع المطوّر</b>.',
+  ext_fix_1: 'افتح صفحة الإضافات وتأكد من تفعيل <b>وضع المطوّر</b>.',
   ext_fix_2: 'ابحث عن <b>Webflow Bridge</b> وانقر على زر <b>إعادة التحميل</b>.',
   press_recheck: 'ثم اضغط <b>إعادة التحقق</b> أدناه.',
   page_fix_switch: 'بدّل المتصفح إلى تبويب صفحة ويب عادية — أي موقع http:// أو https://.',
   page_fix_restricted: 'لا يمكن تشغيل صفحات chrome:// ومتجر Chrome وصفحات التبويب الجديد.',
   page_fix_restricted_edge: 'لا يمكن تشغيل صفحات edge:// ومتجر إضافات Edge وصفحات التبويب الجديد.',
   page_fix_devtools: 'مُرفَق مصحح آخر — عادة DevTools (F12) — بالتبويب النشط. أغلقه ثم اضغط <b>إعادة التحقق</b> أدناه.',
-  page_fix_generic: 'لا يمكن تشغيل التبويب النشط حالياً. انتقل إلى صفحة http(s) عادية؛ إذا استمر الفشل، أغلق DevTools (F12) في التبويب، وأعد تحميل الإضافة من <code>{ext_url}</code> وحاول مجدداً.'
+  page_fix_generic: 'لا يمكن تشغيل التبويب النشط حالياً. انتقل إلى صفحة http(s) عادية؛ إذا استمر الفشل، أغلق DevTools (F12) في التبويب، وأعد تحميل الإضافة باستخدام الأمر أدناه وحاول مجدداً.'
 },
 
 'it': {
@@ -382,14 +382,14 @@
   cmd_python: 'Python:',
   cmd_uv: 'uv:',
   daemon_fix_wait: 'Attendi il banner “Webflow Bridge daemon started”, quindi premi <b>Ricontrolla</b> qui sotto.',
-  ext_fix_1: 'Apri <code>{ext_url}</code> e assicurati che la <b>modalità sviluppatore</b> sia attiva.',
+  ext_fix_1: 'Apri la pagina delle estensioni e assicurati che la <b>modalità sviluppatore</b> sia attiva.',
   ext_fix_2: 'Trova <b>Webflow Bridge</b> e fai clic sul pulsante <b>Ricarica</b>.',
   press_recheck: 'Quindi premi <b>Ricontrolla</b> qui sotto.',
   page_fix_switch: 'Passa il browser a una scheda con una normale pagina web — qualsiasi sito http:// o https://.',
   page_fix_restricted: 'Le pagine chrome://, il Chrome Web Store e le pagine di nuova scheda non possono essere pilotate.',
   page_fix_restricted_edge: 'Le pagine edge://, lo store dei componenti aggiuntivi di Edge e le pagine di nuova scheda non possono essere pilotate.',
   page_fix_devtools: 'Un altro debugger — di solito DevTools (F12) — è collegato alla scheda attiva. Chiudilo e premi <b>Ricontrolla</b> qui sotto.',
-  page_fix_generic: 'La scheda attiva non può essere pilotata al momento. Passa a una normale pagina http(s); se continua a fallire, chiudi DevTools (F12) sulla scheda, ricarica l’estensione su <code>{ext_url}</code> e riprova.'
+  page_fix_generic: 'La scheda attiva non può essere pilotata al momento. Passa a una normale pagina http(s); se continua a fallire, chiudi DevTools (F12) sulla scheda, ricarica l’estensione con il comando qui sotto e riprova.'
 }
 
   };
