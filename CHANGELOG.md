@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.0 — 2026-09-10
+
+### Added
+- Popup rebuilt as a whole-card status display with an activation checklist wizard
+- 12-language i18n (en/zh-CN/zh-TW/ja/ko/fr/de/es/pt/ru/ar/it)
+- Copy buttons embedded in command code boxes (icon-only, GitHub style)
+- Restricted-page hints now browser-specific (chrome:// vs edge://)
+
+### Changed
+- Activation checklist row order (Extension ready first)
+- Title removed
+- Raw browser error no longer echoed for restricted pages (native "Cannot access chrome:// and edge:// URLs" suppressed)
+
+Both Chrome/Edge (extension/) and Firefox companion (ff/) updated in sync.
+
 ## v1.0.0 — 2026-09-09
 
 **收口发布**：Chrome/Edge 版 + Firefox 版能力对等完成，公开协议动作集冻结

@@ -205,5 +205,5 @@ Webflow Bridge **免费开源（MIT）** —— 见 [LICENSE](LICENSE)。如果�
 
 - ⭐ 点 Star —— [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
 - 🐛 报 Bug / 提需求 —— [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
-- 📦 Releases —— [v1.0.0](https://github.com/darrenhooooo/webflow-bridge/releases)
+- 📦 Releases —— [v1.1.0](https://github.com/darrenhooooo/webflow-bridge/releases)
 - ✉️ 联系 —— darren.hou@outlook.com

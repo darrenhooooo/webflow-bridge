@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Webflow Bridge Command API
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Local browser-automation bridge — protocol-compatible agent-tool surface for browser bridges
     replacement driven over plain HTTP (zero SDK, any HTTP client works).
