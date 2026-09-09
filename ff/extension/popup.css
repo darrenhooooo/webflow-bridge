@@ -13,18 +13,18 @@
   --border: #dadce0;         /* 1px 细分隔线 */
   --text: #202124;
   --muted: #5f6368;
-  --primary: #34a853;        /* Google Green */
-  --primary-hover: #188038;
+  --primary: #23794C;        /* 主卡绿同族（源自微信截面色 #3AC97E 的加深/tint） */
+  --primary-hover: #1D643F;
   --on-primary: #ffffff;
-  --ok: #188038;
-  --err: #d93025;
+  --ok: #23794C;
+  --err: #A23E3D;
   --warn: #f9ab00;
-  --ok-tint: rgba(24, 128, 56, 0.08);
-  --err-tint: rgba(217, 48, 37, 0.07);
-  --ok-border: rgba(24, 128, 56, 0.45);
-  --err-border: rgba(217, 48, 37, 0.45);
+  --ok-tint: rgba(58, 201, 126, 0.12);
+  --err-tint: rgba(246, 94, 93, 0.10);
+  --ok-border: rgba(58, 201, 126, 0.50);
+  --err-border: rgba(246, 94, 93, 0.50);
   --warn-tint: rgba(249, 171, 0, 0.12);
-  --busy-tint: rgba(52, 168, 83, 0.12);
+  --busy-tint: rgba(58, 201, 126, 0.14);
   --shadow-card: 0 1px 2px rgba(60, 64, 67, 0.3),
                  0 1px 3px 1px rgba(60, 64, 67, 0.15);
   /* 主卡填充态（终版整卡状态显示器）：微信截取色 + 白字白点，两种主题同组值 */
@@ -46,18 +46,18 @@
     --border: #3c4043;
     --text: #e8eaed;
     --muted: #9aa0a6;
-    --primary: #81c995;      /* light green on dark */
-    --primary-hover: #a2d9b3;
+    --primary: #3AC97E;      /* 主卡绿同族（微信截面色 #3AC97E） */
+    --primary-hover: #2FB66D;
     --on-primary: #052e16;
-    --ok: #81c995;
-    --err: #f28b82;
+    --ok: #3AC97E;
+    --err: #F65E5D;
     --warn: #fdd663;
-    --ok-tint: rgba(129, 201, 149, 0.12);
-    --err-tint: rgba(242, 139, 130, 0.10);
-    --ok-border: rgba(129, 201, 149, 0.45);
-    --err-border: rgba(242, 139, 130, 0.45);
+    --ok-tint: rgba(58, 201, 126, 0.16);
+    --err-tint: rgba(246, 94, 93, 0.14);
+    --ok-border: rgba(58, 201, 126, 0.50);
+    --err-border: rgba(246, 94, 93, 0.50);
     --warn-tint: rgba(253, 214, 99, 0.12);
-    --busy-tint: rgba(129, 201, 149, 0.16);
+    --busy-tint: rgba(58, 201, 126, 0.18);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3),
                    0 1px 3px 1px rgba(0, 0, 0, 0.3);
   }

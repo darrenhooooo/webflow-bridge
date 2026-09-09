@@ -12,15 +12,15 @@
   --border: #dadce0;         /* 1px hairlines */
   --text: #202124;
   --text-muted: #5f6368;
-  --primary: #34a853;        /* Google Green */
-  --primary-hover: #188038;
+  --primary: #23794C;        /* 主卡绿同族（源自微信截面色 #3AC97E 的加深/tint） */
+  --primary-hover: #1D643F;
   --on-primary: #ffffff;
-  --success: #188038;
-  --error: #d93025;
-  --ok-tint: rgba(24, 128, 56, 0.08);
-  --err-tint: rgba(217, 48, 37, 0.07);
-  --ok-border: rgba(24, 128, 56, 0.45);
-  --err-border: rgba(217, 48, 37, 0.45);
+  --success: #23794C;
+  --error: #A23E3D;
+  --ok-tint: rgba(58, 201, 126, 0.12);
+  --err-tint: rgba(246, 94, 93, 0.10);
+  --ok-border: rgba(58, 201, 126, 0.50);
+  --err-border: rgba(246, 94, 93, 0.50);
   --shadow-card: 0 1px 2px rgba(60, 64, 67, 0.3),
                  0 1px 3px 1px rgba(60, 64, 67, 0.15);
   /* main-card fill states (whole-card status display): WeChat screenshot
@@ -43,15 +43,15 @@
     --border: #3c4043;
     --text: #e8eaed;
     --text-muted: #9aa0a6;
-    --primary: #81c995;      /* light green on dark */
-    --primary-hover: #a2d9b3;
+    --primary: #3AC97E;      /* 主卡绿同族（微信截面色 #3AC97E） */
+    --primary-hover: #2FB66D;
     --on-primary: #052e16;
-    --success: #81c995;
-    --error: #f28b82;
-    --ok-tint: rgba(129, 201, 149, 0.12);
-    --err-tint: rgba(242, 139, 130, 0.10);
-    --ok-border: rgba(129, 201, 149, 0.45);
-    --err-border: rgba(242, 139, 130, 0.45);
+    --success: #3AC97E;
+    --error: #F65E5D;
+    --ok-tint: rgba(58, 201, 126, 0.16);
+    --err-tint: rgba(246, 94, 93, 0.14);
+    --ok-border: rgba(58, 201, 126, 0.50);
+    --err-border: rgba(246, 94, 93, 0.50);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3),
                    0 1px 3px 1px rgba(0, 0, 0, 0.3);
   }
