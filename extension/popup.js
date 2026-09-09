@@ -104,9 +104,18 @@
   };
 
   function rowIcon(rowState) {
-    return rowState === 'ok' ? '✓'
-         : rowState === 'bad' ? '✗'
-         : rowState === 'busy' ? '·' : '…';
+    if (rowState === 'ok') {
+      return '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" '
+           + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+           + 'stroke-linejoin="round" aria-hidden="true">'
+           + '<path d="M3.2 8.4l3.2 3.2 6.4-7"/></svg>';
+    }
+    if (rowState === 'bad') {
+      return '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" '
+           + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+           + 'aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    }
+    return rowState === 'busy' ? '·' : '…';
   }
 
   // Fix content builders (only invoked for 'bad' rows).
@@ -155,7 +164,7 @@
     const icon = document.createElement('span');
     icon.className = 'wiz-icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = rowIcon(rowState);
+    icon.innerHTML = rowIcon(rowState);
     const label = document.createElement('span');
     label.className = 'wiz-name';
     label.textContent = name;
