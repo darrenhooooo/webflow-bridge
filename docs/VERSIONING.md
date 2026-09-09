@@ -51,11 +51,44 @@ patch bump 并同步上述载体。
 - 文档与实测一致（README/HTTP_API/openapi 分版）
 
 ### 0.x 阶段特例
+**1.x 阶段节奏见「发布节奏」节。**
 - 0.x minor 内的 breaking 变更合法，但必须：CHANGELOG 标 `[breaking]`、
   README 支持范围同步、动作集表更新。
 - 尚未 tag 发布的改动不单独 bump，累积到最近一次发布点一起算；
   已 tag 版本上的缺陷修复 → 立即 patch bump（如 0.2.0 发布后发现的 bug
   → 0.2.1）。
+
+## 发布节奏（darren 拍板 2026-09-10）
+
+除「bump 检查表」判定 bump 档位外，1.x 阶段发布点之间按下列 5 条节奏规则执行：
+
+### 1. 强制立即 bump（patch）——影响用户正在用的东西，不攒
+- 协议/行为 bug 修复（行为回不到预期）
+- 安全修复
+- 构建/打包/CI 坏了（产物无法构建）
+- 上版引入的回归（上一发布版造成的功能倒退，需立即修+发）
+
+### 2. 攒批不立即发（patch 级）——纯体验/文档类，不影响功能可用性
+- 纯 UI 文案/视觉微调（如 popup 去对勾、措辞优化）
+- 纯文档修正（README/AMO 文案/注释，不含能力宣称变化）
+- 零行为变化的重构/清理（测试全绿）
+
+### 3. 攒批触发线：≥5 个 patch 级 commit 才发一版
+如 1.1.0 后攒够 5 个 patch → 1.1.1/1.1.5；数字指发布点之后累计的 patch 级
+commit 数，不含已发版本。不足 5 个不发，继续攒。
+
+### 4. minor/major 单独发
+出现 minor（新能力面/协议新动作/新平台/新渠道）或 major（breaking）就立即
+单独发一版，不等 patch 攒批；minor 发布点可顺带把当时已攒的 patch 一起带上。
+
+### 5. 刚发完又来小改动
+不追发，攒进下一批；唯一例外 = 第 1 条「上版引入的回归」。
+
+### 判定示例
+- 发完 1.1.0 → 来一个 UI 去对勾 → 判定 patch 攒批 → 不 bump，commit 进 main
+- 攒到第 5 个 patch commit → 触发发布 1.1.x patch
+- 任何时刻出现 minor 能力 → 单独发 minor（连同已攒 patch）
+- 上版造成某动作回归 → 立即 patch bump 发修复版
 
 ## bump 操作流程（kf 执行，每次发布走一遍）
 
@@ -72,6 +105,7 @@ patch bump 并同步上述载体。
 - 1.x patch：缺陷/安全修复、纯文档、构建修复（1.0.0 → 1.0.1）
 - 1.x minor：新增向后兼容能力（动作/参数/平台/渠道）（1.0.x → 1.1.0）
 - 2.0：向后不兼容的协议变更（breaking，须 CHANGELOG 标 [breaking] + 迁移说明）
+- 1.x 阶段发布节奏（何时立即发 / 何时攒批 / 触发线 ≥5）见「发布节奏」节。
 - 1.0.0 已知差异：Chrome 版 5 个未文档化扩展面动作（drop/fill_form/submit/
   wait_for/resize_page）未在 Firefox 版实现，按需后续对齐；cdp 与
   handle_file_chooser 为 Firefox 平台物理不支持（明确报错）。
