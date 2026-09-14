@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
   <title>Webflow Bridge</title>
   <link rel="stylesheet" href="popup.css">
 </head>
@@ -9,7 +10,7 @@
   <!-- Header: logo + title + version chip (version filled from manifest) -->
   <header class="head">
     <img class="logo" src="assets/icons/icon128.png"
-         alt="Webflow Bridge logo" width="20" height="20">
+         alt="Webflow Bridge logo" width="20" height="20" draggable="false">
     <h1 class="title">Webflow Bridge</h1>
     <span id="version" class="version">v…</span>
   </header>
@@ -25,7 +26,7 @@
   <div id="mainCard" role="button" tabindex="0" aria-disabled="true"
        class="card main-card" data-state="checking">
     <span class="dot" aria-hidden="true"></span>
-    <span id="mainWord" class="main-word">Checking…</span>
+    <span id="mainWord" class="main-word" aria-live="polite" aria-atomic="true">Checking…</span>
   </div>
 
   <!-- Connection toggle: secondary muted action right under the main card.

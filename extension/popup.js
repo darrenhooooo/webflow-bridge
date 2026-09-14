@@ -27,6 +27,9 @@
                             : 'python3 daemon/webflow_bridge.py';
   const DAEMON_UV_CMD = 'uv run --python 3.11 daemon/webflow_bridge.py';
   const EXT_URL = IS_EDGE ? 'edge://extensions' : 'chrome://extensions';
+  // Public repo — the daemon (and the wb project) lives there; the checklist
+  // ends with a quiet link to it so the user/agent can find the project.
+  const PROJECT_URL = 'https://github.com/darrenhooooo/webflow-bridge';
   // Browser name used to give the activation guide real pointing (the
   // Chrome/Edge brand names are never translated).
   const BROWSER = IS_EDGE ? 'Edge' : 'Chrome';
@@ -179,6 +182,8 @@
     fix.push({ type: 'text', html: T('daemon_lead') });
     fix.push({ type: 'cmd', cmd: DAEMON_CMD });
     fix.push({ type: 'cmd', cmd: DAEMON_UV_CMD });
+    // Quiet pointer to the project itself (label is i18n, brand words stay).
+    fix.push({ type: 'link', href: PROJECT_URL, text: T('project_link') });
     return fix;
   }
 
@@ -255,6 +260,12 @@
           btn.setAttribute('aria-label', T('copy'));
           btn.innerHTML = COPY_ICON_SVG;
           btn.addEventListener('click', () => copyCmd(btn));
+          // Immediate press feedback on pointer-down (not waiting for :active
+          // or the click), and a guaranteed reset if the pointer leaves early.
+          btn.addEventListener('pointerdown', () => btn.classList.add('is-pressing'));
+          for (const evName of ['pointerup', 'pointercancel', 'pointerleave', 'blur']) {
+            btn.addEventListener(evName, () => btn.classList.remove('is-pressing'));
+          }
           row.appendChild(code);
           row.appendChild(btn);
           box.appendChild(row);
@@ -263,6 +274,15 @@
           el.className = 'wiz-note';
           el.textContent = item.text;
           box.appendChild(el);
+        } else if (item.type === 'link') {
+          // Repo link row — opens in a new tab; brand text comes from i18n.
+          const a = document.createElement('a');
+          a.className = 'wiz-link';
+          a.href = item.href;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = item.text;
+          box.appendChild(a);
         } else if (item.type === 'raw') {
           const el = document.createElement('code');
           el.className = 'wiz-rawerr';
