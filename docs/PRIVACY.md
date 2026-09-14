@@ -45,6 +45,11 @@ run the daemon on machines you trust.
   availability.
 - `alarms` — a background watchdog that reconnects to the daemon if the
   connection drops.
+- `tabGroups` — name the tab group when a script opens a new tab with a group
+  title (the `navigate` action's `group_title` option).
+- `storage` — save the local daemon token and the Disconnect/Reconnect state
+  on this machine, in your browser's local extension storage; this data is
+  never uploaded.
 
 ## Removing Webflow Bridge
 
@@ -52,4 +57,7 @@ run the daemon on machines you trust.
 2. Delete this repository.
 3. Stop the daemon process running `daemon/webflow_bridge.py`.
 
-No data is stored anywhere, so there is nothing else to delete.
+No browsing data is stored anywhere. The only things the extension saves are
+the local daemon token and the Disconnect/Reconnect state, kept in your
+browser's local extension storage on this machine and removed when you
+uninstall the extension.

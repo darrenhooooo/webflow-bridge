@@ -123,6 +123,8 @@
 //
 // Reconnects automatically with exponential backoff capped at 30 s. A
 // heartbeat keeps the socket + service worker alive while the daemon is up.
+// The popup can explicitly pause the link (wf-disconnect): the socket closes
+// and every automatic redial path is skipped until wf-reconnect.
 // A chrome.alarms watchdog ('webflow-reconnect', 0.5 min period) is the
 // fallback for MV3 worker suspension: timers die with the worker, but the
 // alarm still fires on the next wake-up and force-reconnects a dead socket.
@@ -130,6 +132,7 @@
 const WS_URL = 'ws://127.0.0.1:10087';
 const CONFIG_URL = 'http://127.0.0.1:10086/config'; // daemon token bootstrap
 const TOKEN_STORE_KEY = 'wbf_token';                  // chrome.storage.local key
+const SUSPEND_STORE_KEY = 'wbfSuspended';             // persisted popup Disconnect flag
 const CONFIG_FETCH_TIMEOUT_MS = 2500;
 const MAX_BACKOFF_MS = 30000;   // reconnect backoff cap (spec)
 const HEARTBEAT_MS = 15000;     // < 30 s MV3 idle limit
@@ -149,6 +152,109 @@ let ws = null;
 let backoff = 1000;             // 1s -> 2s -> 4s -> ... -> 30s
 let reconnectTimer = null;
 let heartbeatTimer = null;
+let suspended = false;          // popup Disconnect: socket + auto-reconnect paused
+let suspendStateEpoch = 0;      // bumped on every local suspend/resume decision
+
+// ---------------- persisted pause flag --------------
+// The popup's Disconnect must survive MV3 service-worker recycling and full
+// browser restarts. The manifest declares the "storage" permission, so
+// chrome.storage.local is the primary mechanism. IndexedDB is kept as a
+// fallback — it needs no permission and lives in the same profile, so it
+// still works if the permission ever goes missing. Both reads/writes are
+// wrapped so a failure is a conservative no-op (read -> connect as usual,
+// write -> the live in-memory disconnect still stands).
+const SUSPEND_DB_NAME = 'wbf_state';
+const SUSPEND_DB_STORE = 'kv';
+const SUSPEND_DB_KEY = SUSPEND_STORE_KEY;
+
+function hasChromeStorage() {
+  try {
+    return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.storage.local &&
+           typeof chrome.storage.local.get === 'function' &&
+           typeof chrome.storage.local.set === 'function';
+  } catch (_) { return false; }
+}
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    let req;
+    try { req = indexedDB.open(SUSPEND_DB_NAME, 1); }
+    catch (e) { reject(e); return; }
+    req.onupgradeneeded = () => {
+      try {
+        if (!req.result.objectStoreNames.contains(SUSPEND_DB_STORE)) {
+          req.result.createObjectStore(SUSPEND_DB_STORE);
+        }
+      } catch (_) { /* store already there */ }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('idb open failed'));
+  });
+}
+
+async function idbGet(key) {
+  const db = await idbOpen();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(SUSPEND_DB_STORE, 'readonly');
+      const rq = tx.objectStore(SUSPEND_DB_STORE).get(key);
+      rq.onsuccess = () => resolve(rq.result);
+      rq.onerror = () => reject(rq.error || new Error('idb get failed'));
+    });
+  } finally { db.close(); }
+}
+
+async function idbSet(key, value) {
+  const db = await idbOpen();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(SUSPEND_DB_STORE, 'readwrite');
+      tx.objectStore(SUSPEND_DB_STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('idb set failed'));
+      tx.onabort = () => reject(tx.error || new Error('idb set aborted'));
+    });
+  } finally { db.close(); }
+}
+
+async function readPersistedSuspended() {
+  if (hasChromeStorage()) {
+    try {
+      const stored = await chrome.storage.local.get(SUSPEND_STORE_KEY);
+      return !!(stored && stored[SUSPEND_STORE_KEY] === true);
+    } catch (_) {
+      return false;             // storage unreadable: fall back to connecting
+    }
+  }
+  try {
+    return (await idbGet(SUSPEND_DB_KEY)) === true;
+  } catch (_) {
+    return false;               // fallback unreadable: fall back to connecting
+  }
+}
+
+async function persistSuspended(value) {
+  if (hasChromeStorage()) {
+    try { await chrome.storage.local.set({ [SUSPEND_STORE_KEY]: value }); }
+    catch (_) { /* write failed: local flag and this disconnect still stand */ }
+    return;
+  }
+  try { await idbSet(SUSPEND_DB_KEY, value); }
+  catch (_) { /* write failed: local flag and this disconnect still stand */ }
+}
+
+// Memoized: resolves once the persisted pause flag has been read. Every dial
+// path (connect / scheduleReconnect / the alarm watchdog / wf-ping) awaits it
+// BEFORE deciding, which closes the cold-start race where `suspended` is
+// still at its default and a dial could sneak out before the value is known.
+const suspendStateReady = (async () => {
+  const epochAtStart = suspendStateEpoch;
+  const loaded = await readPersistedSuspended();
+  // A suspend/resume that happened while the read was in flight is newer and
+  // must win over the stale persisted value.
+  if (suspendStateEpoch === epochAtStart) suspended = loaded;
+  return suspended;
+})();
 
 // ---------------- debugger session state ----------------
 
@@ -255,8 +361,11 @@ function invalidateWsToken() {
 }
 
 async function connect() {
+  await suspendStateReady;                   // never dial before the pause flag is known
+  if (suspended) return;                     // user paused the link
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   const token = await ensureWsToken();
+  if (suspended) return;                     // paused while the token was fetched
   if (token === null && !wbfTokenLegacy) {
     // Daemon not up yet: keep the existing silent backoff loop.
     ws = null;
@@ -293,7 +402,9 @@ async function connect() {
   };
 }
 
-function scheduleReconnect() {
+async function scheduleReconnect() {
+  await suspendStateReady;                   // persisted pause flag before deciding
+  if (suspended) return;                     // paused: no automatic redial
   if (reconnectTimer) return;                // only one pending timer
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -321,6 +432,47 @@ function startHeartbeat() {
 
 function stopHeartbeat() {
   if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// ---------------- user-paused link (popup Disconnect / Reconnect) ----------------
+// Disconnect is an explicit user action: close the socket and silence every
+// automatic redial path (retry timer, heartbeat, alarms watchdog) so the
+// daemon cannot be dialed back until the user asks for it. The flag is now
+// persisted (chrome.storage.local when the permission exists, IndexedDB
+// otherwise) so it also survives a service-worker recycle / browser restart;
+// Reconnect clears it and dials immediately. While not suspended, every
+// existing connect / reconnect / heartbeat / evaluate path behaves exactly as
+// before.
+async function suspendConnection() {
+  suspended = true;
+  suspendStateEpoch += 1;     // beat any in-flight startup read
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  stopHeartbeat();
+  const sock = ws;
+  ws = null;
+  if (sock) {
+    // Detach the handlers first: onclose would otherwise scheduleReconnect.
+    try {
+      sock.onopen = null;
+      sock.onmessage = null;
+      sock.onerror = null;
+      sock.onclose = null;
+    } catch (_) { /* noop */ }
+    try { sock.close(); } catch (_) { /* noop */ }
+  }
+  backoff = 1000;
+  cleanupDebuggerSession();   // nothing to serve while the link is paused
+  // Durable before the popup's reply resolves; a storage write failure is
+  // swallowed and the live disconnect above still stands.
+  await persistSuspended(true);
+}
+
+async function resumeConnection() {
+  suspended = false;
+  suspendStateEpoch += 1;     // beat any in-flight startup read
+  backoff = 1000;
+  await persistSuspended(false);
+  connect();                  // immediate redial (connect clears any timer)
 }
 
 // ---------------- chrome.debugger session manager ----------------
@@ -549,7 +701,11 @@ async function runtimeEvaluate(tabId, expression) {
 // ---------------- popup runtime messages ----------------
 // The toolbar popup (popup.html) talks to this service worker over
 // chrome.runtime messages — no daemon WebSocket is involved:
-//   {type: "wf-ping"}              -> {ok:true, version, daemon: "connected"|"disconnected"}
+//   {type: "wf-ping"}              -> {ok:true, version, suspended, daemon: "connected"|"disconnected"}
+//        (suspended:true means the user paused the link from the popup — the
+//         UI shows Disconnected even if the daemon itself is reachable)
+//   {type: "wf-disconnect"}        -> {ok:true, suspended:true}  (close + pause)
+//   {type: "wf-reconnect"}         -> {ok:true, suspended:false} (resume now)
 //   {type: "wf-evaluate", code}    -> {ok:true, value} | {ok:false, error}
 //        (active tab; routed through the SHARED debugger session helpers
 //         below — ensureDebugger + runtimeEvaluate — never re-implemented)
@@ -558,12 +714,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') return;
 
   if (msg.type === 'wf-ping') {
-    sendResponse({
-      ok: true,
-      version: chrome.runtime.getManifest().version,
-      daemon: (ws && ws.readyState === WebSocket.OPEN) ? 'connected' : 'disconnected',
+    suspendStateReady.then(() => {
+      sendResponse({
+        ok: true,
+        version: chrome.runtime.getManifest().version,
+        suspended: suspended,
+        daemon: (ws && ws.readyState === WebSocket.OPEN) ? 'connected' : 'disconnected',
+      });
     });
-    return;
+    return true;        // cold start: the persisted flag read may still be pending
+  }
+
+  if (msg.type === 'wf-disconnect') {
+    suspendConnection().then(() => sendResponse({ ok: true, suspended: true }));
+    return true;        // reply after the durable write
+  }
+
+  if (msg.type === 'wf-reconnect') {
+    resumeConnection().then(() => sendResponse({ ok: true, suspended: false }));
+    return true;        // reply after the durable write
   }
 
   if (msg.type === 'wf-evaluate') {
@@ -2353,8 +2522,10 @@ async function activeTab() {
 // covers that case: the alarm fires even while this worker is suspended,
 // wakes it, and force-reconnects if the daemon socket died while asleep.
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== 'webflow-reconnect') return;
+  await suspendStateReady;    // persisted pause flag before deciding
+  if (suspended) return;      // user paused the link: watchdog stays quiet
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     backoff = 1000;
     connect();              // connect() clears any pending reconnectTimer too

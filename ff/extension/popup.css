@@ -654,10 +654,6 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   overflow: auto;
 }
 
-.wiz-actions { margin: 8px 0 0; }
-
-#wizRecheck { width: 100%; }
-
 /* ---------- 页脚 ---------- */
 
 .foot {

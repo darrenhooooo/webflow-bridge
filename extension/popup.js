@@ -2,9 +2,12 @@
 // The whole main card is the status surface AND the action entry (role=button):
 //   neutral grey Checking… (initial probe, not clickable)
 //   red Inactive (未激活) — click opens the activation checklist, fix what's
-//   missing, Re-check → green Active (已激活) — click runs one real evaluate
+//   missing → green Active (已激活) — click runs one real evaluate
 //   → friendly confirmation card (no title echo).
-// Talks to background.js over chrome.runtime messages (wf-ping / wf-evaluate).
+//   neutral Disconnected (已断开) — the user paused the daemon link with the
+//   secondary button below the card; that button is then the only way back.
+// Talks to background.js over chrome.runtime messages (wf-ping /
+// wf-evaluate / wf-disconnect / wf-reconnect).
 (function () {
   'use strict';
 
@@ -50,12 +53,13 @@
   const mainWord = document.getElementById('mainWord');
   const wizardEl = document.getElementById('wizard');
   const wizRowsEl = document.getElementById('wizRows');
-  const recheckBtn = document.getElementById('recheckBtn');
+  const connBtn = document.getElementById('connBtn');
   const resultEl = document.getElementById('result');
 
   let bgAlive = false;
   let daemonConnected = false;
-  let state = 'checking';       // 'checking' | 'inactive' | 'active'
+  let suspended = false;        // user pressed Disconnect: auto-reconnect paused
+  let state = 'checking';       // 'checking' | 'inactive' | 'active' | 'disconnected'
   let lastCoarse = '';          // 'ext:daemon' signature of the last probe
   let polling = false;          // 2s-poll re-entrancy guard (one in flight max)
   let busy = 0;                 // manual click / diagnosis ops currently running
@@ -76,9 +80,28 @@
   function setActState(s) {
     state = s;
     mainCard.dataset.state = s;
-    mainCard.setAttribute('aria-disabled', (s === 'checking') ? 'true' : 'false');
+    mainCard.setAttribute('aria-disabled',
+                          (s === 'checking' || s === 'disconnected') ? 'true' : 'false');
     mainWord.textContent = (s === 'checking') ? T('checking')
+                         : (s === 'disconnected') ? T('disconnected')
                          : (s === 'active') ? T('active') : T('inactive');
+    updateConnBtn();
+  }
+
+  // Secondary muted action under the main card. It only exists in two
+  // situations: Active → "Disconnect", user-paused → "Reconnect". While
+  // checking / inactive it is hidden entirely (the poll and the wizard are
+  // the story there) — no empty placeholder is left behind.
+  function updateConnBtn() {
+    if (suspended) {
+      connBtn.textContent = T('reconnect');
+      connBtn.classList.remove('hidden');
+    } else if (state === 'active') {
+      connBtn.textContent = T('disconnect');
+      connBtn.classList.remove('hidden');
+    } else {
+      connBtn.classList.add('hidden');
+    }
   }
 
   function showResult(text) {
@@ -118,10 +141,13 @@
   }
 
   // ------------------------------------------------------------------
-  // Activation checklist (方案A). Rows: Extension ready / Daemon running /
-  // Active tab debug-able (ext first — Darren). A failing row carries its own fix: only static
-  // template copy goes through innerHTML; anything dynamic (raw daemon
-  // errors) is always rendered via textContent.
+  // Activation checklist (方案A). Normal state shows two rows: Extension
+  // ready / Daemon running (ext first — Darren). The page row ("Active tab
+  // debug-able") is NOT an activation condition any more: it only appears as
+  // an explanation when the drive probe fails (Active click evaluate error
+  // or the diagnosis itself finds the tab undrivable). A failing row carries
+  // its own fix: only static template copy goes through innerHTML; anything
+  // dynamic (raw daemon errors) is always rendered via textContent.
   // ------------------------------------------------------------------
 
   const ROW_NAMES = {
@@ -146,12 +172,13 @@
   }
 
   // Fix content builders (only invoked for 'bad' rows).
+  // daemonFix is deliberately minimal: lead line + the two start commands —
+  // no pointing sentence and no wait-for-banner sentence any more.
   function daemonFix() {
     const fix = [];
     fix.push({ type: 'text', html: T('daemon_lead') });
     fix.push({ type: 'cmd', cmd: DAEMON_CMD });
     fix.push({ type: 'cmd', cmd: DAEMON_UV_CMD });
-    fix.push({ type: 'text', html: T('daemon_fix_wait') });
     return fix;
   }
 
@@ -162,7 +189,6 @@
     fix.push({ type: 'text', html: T('ext_fix_1', { browser: BROWSER }) });
     fix.push({ type: 'cmd', cmd: EXT_URL });            // copyable extensions-URL row
     fix.push({ type: 'text', html: T('ext_fix_2') });
-    fix.push({ type: 'text', html: T('press_recheck') });
     return fix;
   }
 
@@ -182,7 +208,6 @@
     } else {
       fix.push({ type: 'text', html: T('page_fix_generic') });
       fix.push({ type: 'cmd', cmd: EXT_URL });   // copyable extensions-URL row to reload it
-      fix.push({ type: 'text', html: T('press_recheck') });
     }
     if (errText && !suppressRaw) fix.push({ type: 'raw', text: truncate(errText, MAX_RESULT) });
     return fix;
@@ -252,10 +277,13 @@
 
   function clearRows() { wizRowsEl.textContent = ''; }
 
+  // Render only the rows the caller actually supplies: the page row is
+  // omitted in every normal state and added only for a drive failure.
   function renderRows(rows) {
     clearRows();
     for (const key of ['ext', 'daemon', 'page']) {
       const r = rows[key];
+      if (!r) continue;
       addRow(ROW_NAMES[key], r.state,
              r.fix || (r.note ? [{ type: 'note', text: r.note }] : null));
     }
@@ -308,14 +336,25 @@
   }
 
   // Live probe of the background: fills bgAlive / daemonConnected, updates
-  // the whole-card status display (red inactive / green active), and records
-  // the coarse signature. Never throws.
+  // the whole-card status display, and records the coarse signature. While
+  // the user has paused the link (suspended) the daemon state must NOT be
+  // allowed to repaint the card back to active/inactive — the card stays
+  // Disconnected until the user presses Reconnect. Never throws.
   async function refreshPing() {
     const resp = await send('wf-ping');
     bgAlive = !!(resp && resp.ok);
     if (!bgAlive) {
+      suspended = false;
       setActState('inactive');
       const st = { ext: false, daemon: false };
+      lastCoarse = coarseKey(st);
+      return st;
+    }
+    suspended = !!resp.suspended;
+    if (suspended) {
+      daemonConnected = false;
+      setActState('disconnected');
+      const st = { ext: true, daemon: false };
       lastCoarse = coarseKey(st);
       return st;
     }
@@ -338,7 +377,7 @@
       const before = lastCoarse;
       const st = await refreshPing();
       const after = coarseKey(st);
-      if (after !== before && before !== '' && !busy &&
+      if (after !== before && before !== '' && !busy && !suspended &&
           !wizardEl.classList.contains('hidden')) {
         await diagnose();          // open checklist follows the new live state
       }
@@ -366,18 +405,18 @@
   async function diagnoseRows(pageErrHint) {
     showWizard();
     clearRows();
-    for (const key of ['ext', 'daemon', 'page']) {
+    // Two-row checklist by default — the page row is only born on a real
+    // drive failure below, so a normal diagnosis never flashes it.
+    for (const key of ['ext', 'daemon']) {
       addRow(ROW_NAMES[key], 'busy', null);
     }
 
     const st = await refreshPing();
 
     if (!st.ext) {
-      const note = T('note_ext_down');
       renderRows({
-        daemon: { state: 'pending', note: note },
+        daemon: { state: 'pending', note: T('note_ext_down') },
         ext: { state: 'bad', fix: extFix() },
-        page: { state: 'pending', note: note },
       });
       return;
     }
@@ -386,7 +425,6 @@
       renderRows({
         daemon: { state: 'bad', fix: daemonFix() },
         ext: { state: 'ok' },
-        page: { state: 'pending', note: T('note_daemon_pending') },
       });
       return;
     }
@@ -402,16 +440,27 @@
       pageOk = !!(resp && resp.ok);
       pageErr = pageOk ? '' : ((resp && resp.error) || T('unknown_error'));
     }
+    if (pageOk) {
+      // All ready = extension + daemon rows ok → collapse the checklist.
+      renderRows({
+        daemon: { state: 'ok' },
+        ext: { state: 'ok' },
+      });
+      hideWizard();             // the button is Active now
+      return;
+    }
+    // Drive probe failed: the page row appears in explanation form only.
     renderRows({
       daemon: { state: 'ok' },
       ext: { state: 'ok' },
-      page: pageOk ? { state: 'ok' } : { state: 'bad', fix: pageFix(pageErr) },
+      page: { state: 'bad', fix: pageFix(pageErr) },
     });
-    if (pageOk) hideWizard();   // all ✓ → the button is Active now
   }
 
   async function onMainClick() {
-    if (state === 'checking') return;
+    // checking = probing; disconnected = the Reconnect button is the only
+    // entry back, so the card itself deliberately does nothing.
+    if (state === 'checking' || state === 'disconnected') return;
     busy++;                     // block the poll timer for the whole click flow
     try {
       hideResult();
@@ -424,13 +473,53 @@
       // Active: verify the channel end-to-end with one real evaluate.
       const resp = await send('wf-evaluate', { code: '(() => document.title)()' });
       if (resp && resp.ok) {
-        showResult(T('test_ok'));
+        showResult(T('test_ok', { browser: BROWSER }));
         return;
       }
       const errText = (resp && resp.error) || T('unknown_error');
       await diagnose(errText);  // the page row explains what to fix
     } finally {
       busy--;
+    }
+  }
+
+  // Disconnect / Reconnect (secondary button). Disconnect pauses the
+  // background's auto-reconnect; Reconnect clears that flag and lets the
+  // normal checking → active/inactive flow resume. Each tap is briefly
+  // disabled so a double click cannot fire two transitions.
+  async function onConnClick() {
+    if (connBtn.disabled) return;
+    connBtn.disabled = true;
+    busy++;                       // keep the 2s poll out of this flow
+    try {
+      hideResult();
+      if (suspended) {
+        const resp = await send('wf-reconnect');
+        if (resp && resp.ok) {
+          suspended = false;
+          setActState('checking');
+          // The local WS handshake can take a few ms; probe briefly so the
+          // card goes checking → active without waiting for the 2s poll.
+          for (let i = 0; i < 12; i++) {
+            const p = await send('wf-ping');
+            if (p && p.ok && p.daemon === 'connected') break;
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+        }
+        await refreshPing();
+      } else {
+        const resp = await send('wf-disconnect');
+        if (resp && resp.ok) {
+          suspended = true;
+          daemonConnected = false;
+          setActState('disconnected');
+        } else {
+          await refreshPing();    // background unreachable: show the truth
+        }
+      }
+    } finally {
+      busy--;
+      setTimeout(() => { connBtn.disabled = false; }, 400);
     }
   }
 
@@ -445,7 +534,7 @@
       onMainClick();
     }
   });
-  recheckBtn.addEventListener('click', () => diagnose());
+  connBtn.addEventListener('click', onConnClick);
   // Live state transitions while the popup stays open (daemon started/stopped
   // after opening): the card follows automatically, no click needed.
   setInterval(poll, POLL_MS);

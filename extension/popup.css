@@ -193,6 +193,20 @@ body {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
 }
 
+/* disconnected — neutral (the user paused the link). Same quiet surface as
+   checking but a different word and a still dot: nothing here is probing and
+   the card itself is not clickable (the button below is the way back). */
+.main-card[data-state="disconnected"] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-weight: 500;
+  cursor: default;
+}
+.main-card[data-state="disconnected"] .dot {
+  background: var(--text-muted);
+}
+
 .main-card:active { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25); }
 .main-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
@@ -371,24 +385,28 @@ body {
   overflow: auto;
 }
 
-.wiz-actions {
-  margin-top: 10px;
-  display: flex;
-}
-
-.wiz-recheck {
-  width: 100%;
-  padding: 6px 12px;
-  background: var(--bg);
-  border: 1px solid var(--primary);
-  border-radius: 8px;
-  color: var(--primary);
-  font: 500 12.5px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/* ---------- connection toggle (Disconnect / Reconnect) ----------
+ * Secondary muted action centred right below the main card. Quiet by design:
+ * transparent fill, hairline border, muted small text — it never competes
+ * with the card above. Hidden (no placeholder) unless it has a job. */
+.conn-btn {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px auto 0;
+  padding: 3px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font: 500 11.5px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   cursor: pointer;
 }
 
-.wiz-recheck:hover { background: var(--surface-2); }
-.wiz-recheck:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.conn-btn:hover { background: var(--surface-2); color: var(--text); }
+.conn-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.conn-btn:disabled { opacity: 0.6; cursor: default; }
+.conn-btn.hidden { display: none; }
 
 /* ---------- result card (friendly confirmation, ok) ---------- */
 

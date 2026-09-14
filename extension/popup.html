@@ -19,21 +19,25 @@
        word, horizontally centred. data-state drives the card surface:
        checking (neutral grey, probing) / inactive (red fill — click opens the
        activation checklist below) / active (green fill — click runs one real
-       evaluate → friendly confirmation). Port / local-daemon rows removed; the
-       version appears only in the header above. -->
+       evaluate → friendly confirmation) / disconnected (neutral, user paused
+       the link — not clickable). Port / local-daemon rows removed; the version
+       appears only in the header above. -->
   <div id="mainCard" role="button" tabindex="0" aria-disabled="true"
        class="card main-card" data-state="checking">
     <span class="dot" aria-hidden="true"></span>
     <span id="mainWord" class="main-word">Checking…</span>
   </div>
 
+  <!-- Connection toggle: secondary muted action right under the main card.
+       Hidden while checking / inactive; shows Disconnect while Active and
+       Reconnect after the user has disconnected. -->
+  <button id="connBtn" type="button" class="conn-btn hidden">Disconnect</button>
+
   <!-- Activation checklist: one row per condition; a failing row carries the
-       fix steps (real daemon command + Copy button, reload URL, page switch). -->
+       fix steps (real daemon command + Copy button, reload URL, page switch).
+       The list follows the live state automatically — no manual refresh button. -->
   <section id="wizard" class="card wizard hidden">
     <ul id="wizRows" class="wiz-rows"></ul>
-    <div class="wiz-actions">
-      <button id="recheckBtn" type="button" class="wiz-recheck" data-i18n="recheck">Re-check</button>
-    </div>
   </section>
 
   <!-- Friendly confirmation shown once the Active channel is verified -->

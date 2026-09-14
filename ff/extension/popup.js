@@ -181,11 +181,9 @@ function pageFix(p) {
     fix.push({ type: 'cmd', cmd: FF_LAUNCH_CMD });            // 可复制启动命令行
     fix.push({ type: 'text', html: T('pagefix_fx_2') });
     fix.push({ type: 'text', html: T('pagefix_fx_3') });
-    fix.push({ type: 'text', html: T('press_recheck') });
   } else {
     fix.push({ type: 'text', html: T('pagefix_gen_1') });
     fix.push({ type: 'text', html: T('pagefix_gen_2') });
-    fix.push({ type: 'text', html: T('press_recheck') });
   }
   if (p && p.error) fix.push({ type: 'raw', text: truncate(p.error, 120) });
   return fix;
@@ -807,7 +805,6 @@ function wire() {
   $('btn-pageinfo').addEventListener('click', () => guardExec(currentPage));
   $('btn-tabs').addEventListener('click', () => guardExec(listTabs));
   $('btn-copy-token').addEventListener('click', () => guardExec(copyToken));
-  $('wizRecheck').addEventListener('click', () => guardExec(runDiagnosis));
   $('exec-code').addEventListener('keydown', (ev) => {
     if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); guardExec(doExec); }
   });
