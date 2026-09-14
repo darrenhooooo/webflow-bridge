@@ -69,7 +69,7 @@ You should see the startup banner with both listening ports:
 ========================================
   Webflow Bridge daemon started
     HTTP  : http://127.0.0.1:10086    POST /command
-    WS    : ws://127.0.0.1:10087          Chrome extension connects here
+    WS    : ws://127.0.0.1:10087          Chrome / Edge extension connects here
 ========================================
 ```
 

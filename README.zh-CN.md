@@ -69,7 +69,7 @@ py -3.11 daemon/webflow_bridge.py
 ========================================
   Webflow Bridge daemon started
     HTTP  : http://127.0.0.1:10086    POST /command
-    WS    : ws://127.0.0.1:10087          Chrome extension connects here
+    WS    : ws://127.0.0.1:10087          Chrome / Edge extension connects here
 ========================================
 ```
 
