@@ -184,9 +184,16 @@ html, body {
         "Microsoft YaHei", sans-serif;
   cursor: pointer;
   user-select: none;
+  /* 与 Chrome/Edge 版对齐：红↔绿平滑过渡（状态点同款 background-color 过渡，
+     不新增动画，不影响 checking 的 pulse）。 */
+  transition: background-color .35s ease, border-color .35s ease,
+              color .35s ease;
 }
 
-#mainCard .main-dot { flex: none; }
+#mainCard .main-dot {
+  flex: none;
+  transition: background-color .35s ease;
+}
 
 #mainCard[data-state="checking"] {
   background: var(--surface-2);

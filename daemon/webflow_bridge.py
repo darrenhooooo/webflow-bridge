@@ -9,7 +9,7 @@ Two stdlib-only servers:
             -> 200 {"status":"ok","data":{"value": <result>}}
             -> 200 {"status":"error","error":"..."}   (evaluate-level failures)
             -> 503 {"error":"extension not connected"} (no extension WebSocket)
-  * WS    : ws://127.0.0.1:10087  (the Chrome MV3 "Webflow Bridge" extension)
+  * WS    : ws://127.0.0.1:10087  (the "Webflow Bridge" MV3 extension — Chrome / Edge)
 
 Flow: HTTP /command -> action "evaluate" is forwarded to the single extension
 WebSocket connection (session "default") as {"id","action","code","tabId"?}
@@ -267,6 +267,25 @@ def _parse_request_line(head: str) -> tuple[str, str, str]:
     return "", "", ""
 
 
+def _parse_ua_browser(head: str) -> str:
+    """Best-effort browser name from a raw HTTP head's User-Agent header.
+
+    Returns 'edge' (UA contains "Edg/"), 'chrome' (contains "Chrome/" and
+    not "Edg/"), or '' when the header is absent/unrecognised. The Edge
+    check comes first because Edge UAs also contain "Chrome/". Matching is
+    case-insensitive.
+    """
+    for line in head.split("\r\n"):
+        if line.lower().startswith("user-agent:"):
+            ua = line.split(":", 1)[1].strip().lower()
+            if "edg/" in ua:
+                return "edge"
+            if "chrome/" in ua:
+                return "chrome"
+            return ""
+    return ""
+
+
 def _query_token(path: str) -> str | None:
     """Pull the ?token= value out of a WS request path (None if absent)."""
     if "?" not in path:
@@ -341,6 +360,7 @@ class Bridge:
         self._lock = threading.RLock()
         self._ws_listener = None    # listening socket on :10087
         self._ws_sock = None        # current extension connection
+        self._client_browser = ''   # 'chrome' | 'edge' | '' (WS client UA)
         self._pending = {}          # request id -> concurrent.futures.Future
         self._ids = itertools.count(1)
         # Per-request humanize flag (P1): dispatch() sets it on the handling
@@ -362,17 +382,24 @@ class Bridge:
         """Accept + serve extension connections forever (one at a time)."""
         while True:
             conn, addr = self._ws_listener.accept()
-            log.info("extension connecting from %s", addr)
             try:
-                self._serve_ws(conn)
+                self._serve_ws(conn, addr)
             except Exception as exc:        # noqa: BLE001 - loop must survive
                 log.warning("extension connection ended: %s", exc)
             finally:
                 self._drop_connection()
 
-    def _serve_ws(self, conn: socket.socket) -> None:
+    def _serve_ws(self, conn: socket.socket, addr=("?", 0)) -> None:
         # --- handshake ---
         head = _read_http_headers(conn)
+        # Which browser is on the other end (Chrome vs Edge): parsed from the
+        # handshake User-Agent, kept on the instance, and put on every
+        # connect/connected/disconnect log line.
+        browser = _parse_ua_browser(head)
+        with self._lock:
+            self._client_browser = browser
+        log.info("extension connecting (%s) from %s",
+                 browser or "unknown", addr)
         # P0-3: the extension must present the shared token as
         # "GET /?token=<tok>" in the handshake request line. A stale extension
         # (daemon rotated its token) or a local process probing the slot gets
@@ -408,7 +435,8 @@ class Bridge:
         )
         with self._lock:
             self._ws_sock = conn
-        log.info("extension connected -> ws://%s:%d ready", WS_HOST, WS_PORT)
+        log.info("extension connected (%s) -> ws://%s:%d ready",
+                 browser or "unknown", WS_HOST, WS_PORT)
 
         # --- frame loop ---
         fragments = bytearray()
@@ -470,8 +498,12 @@ class Bridge:
     def _drop_connection(self) -> None:
         """Extension went away: fail every in-flight request with 503 info."""
         with self._lock:
+            browser = self._client_browser
             self._ws_sock = None
+            self._client_browser = ''
             pending, self._pending = self._pending, {}
+        if browser:
+            log.info("extension disconnected (%s)", browser)
         err = {"ok": False, "disconnected": True}
         for fut in pending.values():
             if not fut.done():
@@ -1252,7 +1284,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="webflow_bridge",
         description="Webflow Bridge daemon — local HTTP(:10086) + WS(:10087) "
-                    "bridge to the Chrome 'Webflow Bridge' MV3 extension.")
+                    "bridge to the 'Webflow Bridge' MV3 extension (Chrome / Edge).")
     parser.add_argument("--allow-no-auth", action="store_true",
                         help="disable bearer-token auth (INSECURE — migration "
                              "only for old local scripts)")
@@ -1291,7 +1323,7 @@ def main() -> None:
     print("  Webflow Bridge daemon started")
     print(f"    HTTP  : http://{HTTP_HOST}:{HTTP_PORT}    POST /command")
     print("            (existing publish scripts post here, unchanged)")
-    print(f"    WS    : ws://{WS_HOST}:{WS_PORT}          Chrome extension connects here")
+    print(f"    WS    : ws://{WS_HOST}:{WS_PORT}          Chrome / Edge extension connects here")
     if AUTH_TOKEN is None:
         print("  AUTH  : DISABLED (--allow-no-auth) — no bearer token required")
     elif os.environ.get("WBF_TOKEN"):
@@ -1306,8 +1338,8 @@ def main() -> None:
         print("  CDP   : allowlist -> " + " ".join(CDP_ALLOWLIST))
     if HUMANIZE:
         print("  MODE  : humanize pacing ON (daemon-wide)")
-    print("  Load the 'Webflow Bridge' extension:")
-    print("    chrome://extensions  ->  Developer mode  ->  Load unpacked  ->  extension/")
+    print("  Load the 'Webflow Bridge' extension (Developer mode -> Load unpacked -> extension/):")
+    print("    Chrome: chrome://extensions      Edge: edge://extensions")
     print("  Then evaluate:  curl -X POST http://127.0.0.1:10086/command \\")
     print("    -H 'Content-Type: application/json' \\")
     print("    -d '{\"action\":\"evaluate\",\"args\":{\"code\":\"(() => document.title)()\"},\"session\":\"default\"}'")

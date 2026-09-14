@@ -134,6 +134,11 @@ body {
   font: 600 13.5px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   cursor: pointer;
   user-select: none;
+  /* Smooth red↔green transition (the state change reads as dynamic rather
+     than a hard jump); harmless for the checking pulse, which animates
+     opacity, and for the two filled-state hover colours. */
+  transition: background-color .35s ease, border-color .35s ease,
+              color .35s ease;
 }
 
 .main-card .dot {
@@ -141,6 +146,7 @@ body {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  transition: background-color .35s ease;
 }
 
 /* checking — neutral grey, probing */

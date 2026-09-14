@@ -24,6 +24,9 @@
                             : 'python3 daemon/webflow_bridge.py';
   const DAEMON_UV_CMD = 'uv run --python 3.11 daemon/webflow_bridge.py';
   const EXT_URL = IS_EDGE ? 'edge://extensions' : 'chrome://extensions';
+  // Browser name used to give the activation guide real pointing (the
+  // Chrome/Edge brand names are never translated).
+  const BROWSER = IS_EDGE ? 'Edge' : 'Chrome';
 
   // Inline SVG icons for the code-box copy button (12×12, stroke follows
   // currentColor). Icon-only button: success swaps to a check + .copied
@@ -53,6 +56,13 @@
   let bgAlive = false;
   let daemonConnected = false;
   let state = 'checking';       // 'checking' | 'inactive' | 'active'
+  let lastCoarse = '';          // 'ext:daemon' signature of the last probe
+  let polling = false;          // 2s-poll re-entrancy guard (one in flight max)
+  let busy = 0;                 // manual click / diagnosis ops currently running
+
+  // The popup polls its (pure chrome.runtime) liveness while it is open, so
+  // the card follows the daemon up/down live without any user click.
+  const POLL_MS = 2000;
 
   // Static info: extension version (manifest). The version appears exactly
   // once, in the header chip (#version); port / local-daemon rows are gone.
@@ -147,7 +157,9 @@
 
   function extFix() {
     const fix = [];
-    fix.push({ type: 'text', html: T('ext_fix_1') });   // pure guide text
+    // Pure guide text — the browser name makes the extensions-page pointer
+    // concrete (Chrome popup → Chrome, Edge popup → Edge).
+    fix.push({ type: 'text', html: T('ext_fix_1', { browser: BROWSER }) });
     fix.push({ type: 'cmd', cmd: EXT_URL });            // copyable extensions-URL row
     fix.push({ type: 'text', html: T('ext_fix_2') });
     fix.push({ type: 'text', html: T('press_recheck') });
@@ -289,24 +301,69 @@
     }, 1500);
   }
 
+  // Coarse ext/daemon signature: a wizard refresh is only worth it when this
+  // combination actually changed between two probes.
+  function coarseKey(st) {
+    return (st.ext ? '1' : '0') + ':' + (st.daemon ? '1' : '0');
+  }
+
   // Live probe of the background: fills bgAlive / daemonConnected, updates
-  // the whole-card status display (red inactive / green active). Never throws.
+  // the whole-card status display (red inactive / green active), and records
+  // the coarse signature. Never throws.
   async function refreshPing() {
     const resp = await send('wf-ping');
     bgAlive = !!(resp && resp.ok);
     if (!bgAlive) {
       setActState('inactive');
-      return { ext: false, daemon: false };
+      const st = { ext: false, daemon: false };
+      lastCoarse = coarseKey(st);
+      return st;
     }
     daemonConnected = resp.daemon === 'connected';
     setActState(daemonConnected ? 'active' : 'inactive');
-    return { ext: true, daemon: daemonConnected };
+    const st = { ext: true, daemon: daemonConnected };
+    lastCoarse = coarseKey(st);
+    return st;
+  }
+
+  // 2s liveness poll while the popup is open. Re-entrancy guarded (never two
+  // probes at once) and skipped entirely while a manual click / diagnosis is
+  // in flight, so the two never run a double diagnosis or fight over the card.
+  // Checklist rows are only rebuilt when the coarse state actually changed —
+  // a copy-button interaction is never disturbed by a no-op poll.
+  async function poll() {
+    if (polling || busy) return;
+    polling = true;
+    try {
+      const before = lastCoarse;
+      const st = await refreshPing();
+      const after = coarseKey(st);
+      if (after !== before && before !== '' && !busy &&
+          !wizardEl.classList.contains('hidden')) {
+        await diagnose();          // open checklist follows the new live state
+      }
+    } catch (_) {
+      /* the timer must never surface an uncaught exception */
+    } finally {
+      polling = false;
+    }
+  }
+
+  // Manual-op guard: while a diagnosis (or the click that triggers one) runs,
+  // the poll timer skips its round so the two never interleave.
+  async function diagnose(pageErrHint) {
+    busy++;
+    try {
+      return await diagnoseRows(pageErrHint);
+    } finally {
+      busy--;
+    }
   }
 
   // One full diagnosis pass for the checklist. `pageErrHint` (optional) is a
   // fresh wf-evaluate error from the Active click — reuse it for the page row
   // instead of probing twice.
-  async function diagnose(pageErrHint) {
+  async function diagnoseRows(pageErrHint) {
     showWizard();
     clearRows();
     for (const key of ['ext', 'daemon', 'page']) {
@@ -355,21 +412,26 @@
 
   async function onMainClick() {
     if (state === 'checking') return;
-    hideResult();
-    hideWizard();
-    await refreshPing();        // live re-check — the daemon may have changed
-    if (state === 'inactive') { // not active yet → open the activation checklist
-      await diagnose();
-      return;
+    busy++;                     // block the poll timer for the whole click flow
+    try {
+      hideResult();
+      hideWizard();
+      await refreshPing();      // live re-check — the daemon may have changed
+      if (state === 'inactive') { // not active yet → open the activation checklist
+        await diagnose();
+        return;
+      }
+      // Active: verify the channel end-to-end with one real evaluate.
+      const resp = await send('wf-evaluate', { code: '(() => document.title)()' });
+      if (resp && resp.ok) {
+        showResult(T('test_ok'));
+        return;
+      }
+      const errText = (resp && resp.error) || T('unknown_error');
+      await diagnose(errText);  // the page row explains what to fix
+    } finally {
+      busy--;
     }
-    // Active: verify the channel end-to-end with one real evaluate.
-    const resp = await send('wf-evaluate', { code: '(() => document.title)()' });
-    if (resp && resp.ok) {
-      showResult(T('test_ok'));
-      return;
-    }
-    const errText = (resp && resp.error) || T('unknown_error');
-    await diagnose(errText);    // the page row explains what to fix
   }
 
   // Initial load: probe once; the card lands on Active (green) or Inactive (red).
@@ -384,4 +446,7 @@
     }
   });
   recheckBtn.addEventListener('click', () => diagnose());
+  // Live state transitions while the popup stays open (daemon started/stopped
+  // after opening): the card follows automatically, no click needed.
+  setInterval(poll, POLL_MS);
 })();
