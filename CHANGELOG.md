@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Manual dialog mode no longer makes the caller wait 30 s.** While a native
+  dialog is pending (`dialog_policy: manual`, or an auto-accept that failed),
+  a debugger action on that tab now fails in milliseconds with the dialog's
+  type/message/source URL and the two ways out. The command no longer detaches
+  the session, so `handle_dialog` still owns it and resolves the dialog.
+  Known boundary (unchanged): a dialog that was already open BEFORE the
+  debugger attached fires no `Page.javascriptDialogOpening`, so it still falls
+  back to the 30 s timeout and cannot be resolved programmatically.
+- `handle_dialog` is race-proof against a dead/being-detached session: a
+  `not attached` / `detached` transport error is retried exactly once after a
+  re-attach, and the timeout path no longer detaches a session that owns a
+  pending dialog.
+- `probe` answers in milliseconds while a dialog blocks the tab (previously it
+  hung): `dialog.blocking` is `true` and every injection path is marked
+  `skipped: ...`.
+- **Dialog state is now tab-scoped.** A native dialog on one tab no longer
+  leaks onto another: `dialog.pending` carries its owning `tabId`, the
+  `evaluate`/`click`/`screenshot` fast-fail and the `probe`
+  `blocking`/`skipped` marking are evaluated per tab, and a `probe` on tab B
+  runs its full path matrix (and `evaluate` works normally) while tab A is
+  blocked. The dialog tab's debugger session is kept attached across a switch
+  to another tab, so switching back still finds the dialog and `handle_dialog`
+  resolves it (a re-attach used to make it unresolvable).
+- Attach-time domain setup is now best-effort in parallel and no longer resets
+  the freshly attached session on timeout.
+
+### Documentation
+- `docs/HTTP_API.md` / `openapi/openapi.yaml`: manual-mode fast-fail error
+  shape, `probe` dialog behaviour and `dialog.blocking`, and the headless
+  `screenshot {fullPage:true}` `Page is too large.` limitation.
+
 ## v1.2.1 — 2026-09-15
 
 ### Fixed

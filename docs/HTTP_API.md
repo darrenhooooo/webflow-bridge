@@ -77,9 +77,10 @@ Unlike `/command`, this endpoint returns `200` even when nothing is connected
 answers in milliseconds. It does **not** prove the debugger can act on the
 current page: native dialogs (when the policy is `manual`) and credential
 prompts block the page, and only a real browser action can reveal that. For an
-activity check use `probe` — but note `probe` drives the debugger, so it too
-can block behind a dialog and now fails with a self-explaining error instead of
-hanging for the full round-trip cap.
+activity check use `probe` — while a native dialog is blocking the page it now
+answers in milliseconds with `dialog.blocking: true` and the affected paths
+marked `skipped` (see
+[Native dialogs, downloads and failed pages](#native-dialogs-downloads-and-failed-pages)).
 
 ```bash
 curl -s http://127.0.0.1:10086/status \
@@ -484,21 +485,74 @@ curl -s -X POST http://127.0.0.1:10086/command \
 
 `policy` is `auto-accept` | `manual`. The value is mirrored in `GET /status`
 (`dialog_policy`) and pushed to the extension immediately (no browser action,
-so it works even while a dialog is blocking a page). In `manual` mode a dialog
-stays pending until an explicit `handle_dialog`; a debugger command on the
-blocked tab then fails with a self-explaining error within ~30 s instead of
-hanging for two minutes:
+so it works even while a dialog is blocking a page).
 
-```text
-CDP Runtime.evaluate did not respond within 30s: the page may be blocked by a
-native dialog or credential prompt (try handle_dialog), or the debugger session
-is dead (retrying re-attaches)
+**Manual mode is a fast failure, not a 30 s wait.** Once the extension has seen
+a `Page.javascriptDialogOpening`, every debugger action on that tab fails
+immediately (tens of milliseconds) with the dialog named — its type, message
+and source URL — plus the two ways out:
+
+```json
+{"status": "error", "error": "a native alert dialog is blocking this tab ('range alert') from http://127.0.0.1:8917/dialogs: call handle_dialog (accept=true) or switch the policy to auto-accept", "browser": "chrome"}
 ```
+
+The same fast failure applies when an automatic accept itself failed
+(`lastError` set) — the auto-accept failure reason is appended. The in-flight
+command is **not** detached, so `handle_dialog` still owns the session and
+resolves the dialog (and `probe` keeps working, below).
+
+This fast failure is **tab-scoped**: the pending dialog belongs to one tab,
+and a command (or `probe`) targeting a *different* tab is never
+short-circuited by it. A dialog on tab A marks no path `skipped` on tab B and
+does not fail B's evaluate/click/screenshot. `dialog.pending` carries the
+owning `tabId`, and switching away from the dialog tab does not lose it: the
+extension keeps that tab's debugger session attached ("pinned") so switching
+back still finds the dialog and `handle_dialog` can resolve it.
+
+**Known boundary (the 30 s fallback is still real).** The extension can only
+learn about a dialog after it is attached and the `Page` domain is enabled. A
+dialog that was already open **before** the debugger attached never fires
+`Page.javascriptDialogOpening`, so the bridge cannot see it: that case still
+falls back to the `CDP Runtime.evaluate did not respond within 30s` timeout
+(plus up to ~10 s of attach-time setup), and `handle_dialog` cannot resolve it
+either — the page was blocking before the bridge ever had a handle. This is
+accepted and documented rather than papered over.
 
 If an automatic accept itself fails, the failure is never swallowed: it is
 recorded in `GET /status` (`last_notice`) and on `probe`
 (`dialog.lastError`/`dialog.policy`), and it rides the next `/command`
 response as a top-level `notice`.
+
+### probe while a dialog blocks the page
+
+`probe` no longer hangs behind a dialog. When the extension knows the target
+tab is blocked (a pending `Page.javascriptDialogOpening`, or a very recent CDP
+timeout on the session) it answers in milliseconds with
+`dialog.blocking: true`, and every injection path is marked skipped instead of
+running into the frozen renderer:
+
+```json
+{"status":"ok","data":{"value":{
+  "tab":{"id":7,"url":"http://127.0.0.1:8917/dialogs","title":"dialogs"},
+  "paths":{
+    "P4_executeScript_func_MAIN":{"ok":false,"error":"skipped: a native alert dialog is blocking this tab ('range alert') ..."},
+    "P5_executeScript_func_eval_MAIN":{"ok":false,"error":"skipped: ..."},
+    "P6_executeScript_func_ISOLATED":{"ok":false,"error":"skipped: ..."},
+    "P7_chromeDebugger_evaluate":{"ok":false,"error":"skipped: ..."}},
+  "dialog":{"policy":"manual","pending":{"tabId":7,"type":"alert","message":"range alert","defaultPrompt":"","url":"..."},"lastError":null,"blocking":true},
+  "downloads":{"count":0,"last":null}}}}
+```
+
+`dialog.pending` is the pending native dialog, tagged with the `tabId` it
+belongs to (`dialog.lastError` carries the same `tabId`). The dialog block is
+**per tab**: `dialog.blocking` is `true` only when the pending dialog belongs
+to the probed tab, and only then are the four paths marked `skipped`. A dialog
+pending on another tab may still appear in `dialog.pending` (so callers can
+see it, including its `tabId`) but it does **not** set `blocking`, and the
+probed tab's paths run normally and report their real results.
+
+Without a dialog the response is unchanged except for the additive
+`dialog.blocking: false`.
 
 ### list_downloads — native downloads are no longer invisible
 
@@ -541,8 +595,10 @@ to ...*"), **failed to load / certificate / cancelled auth**
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Any debugger action hangs, then a `CDP ... did not respond within 30s` error mentioning a dialog | A native dialog (or credential prompt) is blocking the page in `manual` mode | `handle_dialog`, or switch to `auto-accept`; JS dialogs are auto-accepted by default |
-| `probe` never returns / times out | `probe` drives the debugger, so it also blocks behind a dialog | Resolve the dialog; `probe` now fails with an explicit error instead of hanging |
+| A debugger action fails at once with `a native <type> dialog is blocking this tab` | A native dialog is pending in `manual` mode | `handle_dialog` (accept/dismiss), or switch to `auto-accept`; JS dialogs are auto-accepted by default |
+| A debugger action hangs, then a `CDP ... did not respond within 30s` error mentioning a dialog | The dialog was already open **before** the debugger attached (or a credential prompt is blocking) — the bridge has no event for it | `handle_dialog` cannot help in the pre-attach case; dismiss it in the browser, then retry. JS dialogs are auto-accepted by default |
+| `probe` used to hang behind a dialog | The injection paths wait on the frozen renderer | No longer: `probe` answers in ms with `dialog.blocking: true` and the paths marked `skipped`; resolve the dialog with `handle_dialog` |
+| `screenshot {fullPage: true}` answers `{"code":-32000,"message":"Page is too large."}` | Chrome's own cap on capture dimensions (common for very tall pages, and more easily hit in `--headless`) | Not a bridge defect: use a viewport screenshot, a smaller viewport, or a headed browser; the same page's viewport screenshot and `save_as_pdf` still work |
 | `no JavaScript dialog is showing within 2000ms` | No dialog was open (already auto-accepted?) or the dialog is on another tab | Check `dialog.policy` via `probe`; pass `tabId` |
 | `extension_connected: true` but nothing works | The WebSocket is up but the debugger is blocked/dead | `/status` is connection-only; run `probe` or retry (a retry re-attaches) |
 

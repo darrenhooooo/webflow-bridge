@@ -223,7 +223,11 @@ components:
                            open; tabId (int, optional). With the default
                            auto-accept policy the dialog is usually already
                            resolved, so this answers "no JavaScript dialog is
-                           showing within <n>ms".
+                           showing within <n>ms". A dialog opened in manual
+                           mode is resolved directly (the blocked actions do
+                           not detach the session). A dialog that predated
+                           the debugger attach has no opening event and cannot
+                           be resolved at all.
         set_dialog_policy  policy (string, required) "auto-accept" | "manual"
                            — switch native-dialog handling at runtime (works
                            while a dialog blocks the page; no browser
@@ -294,8 +298,10 @@ components:
                 error}; tabs_list an array of tabs; tabs_open {"id","url"};
                 tabs_close {"closed":<tabId>}; tabs_close_all_but
                 {"closed":<count>}; tabs_activate {"tabId","active":true};
-                probe {tab, paths, dialog:{policy, pending, lastError},
-                downloads:{count, last}};
+                probe {tab, paths, dialog:{policy, pending, lastError,
+                blocking}, downloads:{count, last}} (while a native dialog
+                blocks the tab it answers immediately with dialog.blocking
+                true and every path marked "skipped: ...");
                 screenshot {base64, mime, width, height};
                 upload {success, file, tag}; save_as_pdf {base64,
                 mime:"application/pdf"}; mouse_click {success, x, y};
@@ -361,10 +367,11 @@ components:
       description: >-
         Connection snapshot returned by GET /status. Deliberately connection +
         settings only, and always fast: it never triggers a browser action, so
-        it cannot prove the debugger can act on the current page (native
-        dialogs are handled by the dialog_policy setting; for an activity
-        check use the probe action, which fails with a self-explaining error
-        while a dialog is blocking a page).
+        it cannot prove the debugger can act on the current page. Native
+        dialogs are handled by the dialog_policy setting; for an activity check
+        use the probe action, which answers in milliseconds with
+        dialog.blocking=true and skipped paths while a dialog is blocking a
+        page.
       properties:
         extension_connected:
           type: boolean

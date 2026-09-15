@@ -269,7 +269,14 @@ const suspendStateReady = (async () => {
 
 // ---------------- debugger session state ----------------
 
-let debuggerTabId = null;       // tab owning the live chrome.debugger session
+let debuggerTabId = null;       // tab the ACTIVE command session targets
+// Every tab we currently hold a chrome.debugger session on. Normally this is
+// just {debuggerTabId}; a tab with a PENDING native dialog is kept attached
+// ("pinned") even when commands move to another tab, because detaching the tab
+// that owns a dialog makes that dialog unresolvable: Chrome forgets it and
+// Page.handleJavaScriptDialog then answers "No dialog is showing". The pin is
+// released when the dialog is resolved or closed.
+const attachedTabs = new Set();
 
 // P1: current native-dialog policy ('auto-accept' | 'manual'). Read by the
 // Page.javascriptDialogOpening listener; updated by the set_dialog_policy
@@ -296,12 +303,22 @@ let lastPopupNoticeAt = 0;
 // non-debuggable, DevTools took over, renderer gone, ...). Null the state so
 // the next evaluate attaches a fresh session instead of reusing a dead one.
 chrome.debugger.onDetach.addListener((source, reason) => {
-  if (source && typeof source.tabId === 'number' && source.tabId === debuggerTabId) {
+  if (!source || typeof source.tabId !== 'number') return;
+  if (source.tabId === debuggerTabId) {
     console.warn('[web-flow] debugger session ended on tab',
                  source.tabId, 'reason:', reason);
     debuggerTabId = null;
-    pendingDialog = null;
     pendingFileChooser = null;
+  }
+  attachedTabs.delete(source.tabId);
+  // A pinned dialog tab that detaches on its own (tab closed, renderer gone,
+  // DevTools took over) loses the only handle that could resolve its dialog;
+  // drop the now-unresolvable pending state instead of fast-failing forever.
+  if (pendingDialog && pendingDialog.tabId === source.tabId) {
+    pendingDialog = null;
+    if (lastDialogAutoError && lastDialogAutoError.tabId === source.tabId) {
+      lastDialogAutoError = null;
+    }
   }
 });
 
@@ -547,14 +564,20 @@ async function resumeConnection() {
 // Detach whatever session we hold (used when targeting a different tab or
 // shutting down). Swallows errors: detaching an already-dead session is fine.
 async function detachDebugger(tabId) {
+  attachedTabs.delete(tabId);
   try { await chrome.debugger.detach({ tabId }); } catch (_) { /* noop */ }
   if (debuggerTabId === tabId) debuggerTabId = null;
 }
 
 function cleanupDebuggerSession() {
-  const tid = debuggerTabId;
+  const tids = [];
+  for (const tid of attachedTabs) tids.push(tid);
+  attachedTabs.clear();
+  if (debuggerTabId != null && tids.indexOf(debuggerTabId) === -1) {
+    tids.push(debuggerTabId);
+  }
   debuggerTabId = null;
-  if (tid != null) {
+  for (const tid of tids) {
     chrome.debugger.detach({ tabId: tid }).catch(() => { /* noop */ });
   }
 }
@@ -564,33 +587,159 @@ function cleanupDebuggerSession() {
 // dead target). Same recovery the transport-rejection paths use: null the
 // in-memory state so the next command attaches a fresh session, and detach
 // best-effort so the browser-side session does not linger.
+//
+// P1/P2 (batch 2): if a native dialog is pending, the session is the ONLY
+// handle that can resolve it — detaching would also clear pendingDialog via
+// onDetach and leave the page blocked with no way out. So keep the session and
+// let handle_dialog do its job (a later successful command can still reset).
 function resetDebuggerSessionIfCurrent(tabId) {
-  if (debuggerTabId === tabId) {
-    debuggerTabId = null;
-    chrome.debugger.detach({ tabId }).catch(() => { /* noop */ });
+  if (debuggerTabId !== tabId) return;
+  // Only THIS tab's dialog protects its session: another tab's dialog must not
+  // keep a dead session alive here.
+  if (pendingDialog && pendingDialog.tabId === tabId) return;
+  attachedTabs.delete(tabId);
+  debuggerTabId = null;
+  chrome.debugger.detach({ tabId }).catch(() => { /* noop */ });
+}
+
+// P1 (batch 2): a native dialog that is ALREADY known to block the target
+// can be reported without touching the browser. The session is deliberately
+// left attached so a follow-up handle_dialog can still resolve the dialog —
+// the old 30 s timeout detached here and that is what raced handle_dialog.
+// Returns an Error or null.
+function dialogBlockingError(message) {
+  const err = new Error(message);
+  // Callers that normally reset the session on any sendCdp failure (a
+  // transport error means the session is dead) must NOT reset here: this is a
+  // deliberate fast-fail and the session is alive so handle_dialog can use it.
+  err.dialogBlocking = true;
+  return err;
+}
+
+function nativeDialogBlockError(tabId) {
+  // Scoped strictly to the requested tab: A's pending dialog must never
+  // fast-fail a command, mark a probe path skipped, or appear `blocking` on B.
+  // Also independent of which session is currently attached, so targeting the
+  // dialog tab again fast-fails in ms even after a detour to another tab.
+  if (!pendingDialog || pendingDialog.tabId !== tabId) return null;
+  if (dialogPolicy === 'manual') {
+    return dialogBlockingError(nativeDialogMessage(pendingDialog, null));
   }
+  if (lastDialogAutoError && lastDialogAutoError.tabId === tabId) {
+    return dialogBlockingError(
+      nativeDialogMessage(pendingDialog, lastDialogAutoError));
+  }
+  return null;   // auto-accept still in flight: let the command complete
+}
+
+function nativeDialogMessage(dialog, autoError) {
+  const type = (dialog && dialog.type) ? dialog.type : 'unknown';
+  const message = (dialog && dialog.message) ? dialog.message : '';
+  const url = (dialog && dialog.url) ? dialog.url : '';
+  let text = 'a native ' + type + " dialog is blocking this tab ('" +
+             message + "')";
+  if (url) text += ' from ' + url;
+  if (autoError) {
+    text += '; the automatic accept failed (' +
+            String((autoError && autoError.error) || autoError) + ')';
+  }
+  return text + ': call handle_dialog (accept=true) or switch the policy to ' +
+         'auto-accept';
+}
+
+// P1 (batch 2): commands in flight when a dialog starts blocking the page are
+// woken here, so the action that triggered the dialog fails INSIDE that same
+// action instead of waiting out CDP_TIMEOUT_MS.
+let dialogBlockWaiters = [];
+function onDialogBlocked(fn) {
+  dialogBlockWaiters.push(fn);
+  return () => {
+    const i = dialogBlockWaiters.indexOf(fn);
+    if (i >= 0) dialogBlockWaiters.splice(i, 1);
+  };
+}
+function notifyDialogBlocked() {
+  if (!dialogBlockWaiters.length) return;
+  const waiters = dialogBlockWaiters;
+  dialogBlockWaiters = [];
+  for (const fn of waiters) { try { fn(); } catch (_) { /* noop */ } }
+}
+
+// P1/P3 (batch 2): the last CDP command that timed out on the current session
+// — a fast-fail hint for `probe` even when no dialog event was seen (e.g. the
+// dialog predated attach). Cleared by the next successful command.
+let debuggerBlocked = null;   // {method, at, error, tabId} | null
+
+const DIALOG_CONTROL_METHOD = 'Page.handleJavaScriptDialog';
+
+// A "not attached" / "detached" style transport error means the browser-side
+// session died under us (a timed-out command resets it, and the reset detaches
+// asynchronously) even though the in-memory state can still look live.
+function isDetachedError(err) {
+  return /not attached|is not attached|detached|No session with given id/i
+    .test(String((err && err.message) || err));
 }
 
 // P2: the ONLY place chrome.debugger.sendCommand is called. Races the command
 // against `timeoutMs` (default CDP_TIMEOUT_MS). On expiry it resets the
 // session and rejects with a self-explaining error, so a blocked page fails
 // in seconds instead of silently stalling until the daemon's 120 s cap.
-function sendCdp(tabId, method, params, timeoutMs) {
+//
+// opts (optional):
+//   noGuard  true -> do not fast-fail / abort on a pending native dialog
+//                     (Page.handleJavaScriptDialog and the attach-time domain
+//                     enables must run while the page is blocked)
+//   noReset  true -> on timeout keep the attached session (best-effort setup)
+//   noRetry  true -> disable the detached-error re-attach retry (attach phase)
+function sendCdp(tabId, method, params, timeoutMs, opts) {
+  const o = opts || {};
+  return sendCdpAttempt(tabId, method, params, timeoutMs, o).catch((err) => {
+    if (o.noRetry || o._retried || !isDetachedError(err)) throw err;
+    // The session died between our last good command and this one. Drop the
+    // stale state, re-attach once, and resend exactly once. Safe: a "not
+    // attached" rejection means the command never ran.
+    attachedTabs.delete(tabId);
+    if (debuggerTabId === tabId) debuggerTabId = null;
+    return ensureDebugger(tabId).then((attachErr) => {
+      if (attachErr) throw new Error(attachErr);
+      return sendCdpAttempt(tabId, method, params, timeoutMs,
+                            Object.assign({}, o, { _retried: true }));
+    });
+  });
+}
+
+function sendCdpAttempt(tabId, method, params, timeoutMs, o) {
   const limit = (Number.isFinite(timeoutMs) && timeoutMs > 0)
     ? timeoutMs : CDP_TIMEOUT_MS;
+  const guard = o.noGuard !== true && method !== DIALOG_CONTROL_METHOD;
   return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = () => { settled = true; clearTimeout(timer); };
-    const timer = setTimeout(() => {
+    let unsub = null;
+    let timer = null;
+    const finish = () => {
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (unsub) unsub();
+    };
+    if (guard) {
+      const known = nativeDialogBlockError(tabId);
+      if (known) { reject(known); return; }
+    }
+    timer = setTimeout(() => {
       if (settled) return;
       finish();
-      resetDebuggerSessionIfCurrent(tabId);
       const secs = Math.round(limit / 1000);
+      const msg = 'CDP ' + method + ' did not respond within ' + secs + 's';
+      debuggerBlocked = { method, at: Date.now(), error: msg, tabId };
+      if (o.noReset === true) {
+        reject(new Error(msg + ' (best-effort setup step skipped)'));
+        return;
+      }
+      resetDebuggerSessionIfCurrent(tabId);
       reject(new Error(
-        'CDP ' + method + ' did not respond within ' + secs + 's: the page ' +
-        'may be blocked by a native dialog or credential prompt (try ' +
-        'handle_dialog), or the debugger session is dead (retrying ' +
-        're-attaches)'));
+        msg + ': the page may be blocked by a native dialog or credential ' +
+        'prompt (try handle_dialog), or the debugger session is dead ' +
+        '(retrying re-attaches)'));
     }, limit);
     let call;
     try {
@@ -600,10 +749,32 @@ function sendCdp(tabId, method, params, timeoutMs) {
       reject(err);
       return;
     }
+    if (guard) {
+      // Only a dialog on THIS tab may abort this command; a dialog that opened
+      // on another tab must not wake/cancel us (cross-tab scope). If the wake
+      // is for another tab, re-register so a later dialog on OUR tab still
+      // aborts us inside the same action.
+      const wake = () => {
+        if (settled) return;
+        if (!pendingDialog || pendingDialog.tabId !== tabId) {
+          unsub = onDialogBlocked(wake);
+          return;
+        }
+        const e = nativeDialogBlockError(tabId) ||
+          dialogBlockingError('a native dialog is blocking this tab');
+        finish();
+        reject(e);
+      };
+      unsub = onDialogBlocked(wake);
+    }
     call.then(
       (res) => {
         if (settled) return;
         finish();
+        // Only a real page command clears the "recently blocked" hint: an
+        // attach-time setup step (noReset) can answer even while the page
+        // itself is frozen, and must not mask the block for probe/handle.
+        if (o.noReset !== true) debuggerBlocked = null;
         resolve(res);
       },
       (err) => {
@@ -627,12 +798,23 @@ function ensureDebugger(tabId) {
 
 async function ensureDebuggerLocked(tabId) {
   if (debuggerTabId === tabId) return null;   // live session; onDetach nulls it if it dies
-  if (debuggerTabId != null) {
+  // A tab that owns a pending native dialog stays attached ("pinned") across a
+  // switch to another tab; detaching it would make its dialog unresolvable.
+  const pinnedDialogTab = (pendingDialog && typeof pendingDialog.tabId === 'number')
+    ? pendingDialog.tabId : null;
+  if (debuggerTabId != null && debuggerTabId !== pinnedDialogTab) {
     await detachDebugger(debuggerTabId);      // switch to the newly targeted tab
+  }
+  if (attachedTabs.has(tabId)) {
+    // Reuse a still-attached session (e.g. returning to the pinned dialog tab)
+    // instead of detaching/re-attaching it — a re-attach loses the dialog.
+    debuggerTabId = tabId;
+    return null;
   }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       await chrome.debugger.attach({ tabId }, DEBUGGER_VERSION);
+      attachedTabs.add(tabId);
       debuggerTabId = tabId;
       try { await enableCollectorDomains(tabId); } catch (_) { /* best-effort */ }
       return null;
@@ -678,7 +860,9 @@ let consoleEvents = [];    // [{type,text,timestamp}]
 // here so the handle_dialog action can accept/dismiss/answer it. While an
 // entry is pending the page script is blocked on the dialog, so handle_dialog
 // must always resolve it (see handleDialog) or the tab hangs.
-let pendingDialog = null;  // {type,message,defaultPrompt,url,hasBrowserHandler} | null
+// Always carries the owning `tabId`: a "this tab is blocked" decision must be
+// scoped to one tab, so A's dialog can never affect B (nativeDialogBlockError).
+let pendingDialog = null;  // {tabId,type,message,defaultPrompt,url,hasBrowserHandler,openedAt} | null
 
 // File-chooser interception (Page domain). enableCollectorDomains turns on
 // Page.setInterceptFileChooserDialog after every attach, so a file input /
@@ -700,49 +884,57 @@ async function enableCollectorDomains(tabId) {
   // Page.enable makes JS dialogs (alert/confirm/prompt/beforeunload) surface
   // as Page.javascriptDialogOpening events instead of Chrome auto-dismissing
   // them while a debugger is attached (see handleDialog below).
-  for (const method of ['Network.enable', 'Runtime.enable', 'Page.enable']) {
-    try { await sendCdp(tabId, method, undefined, COLLECTOR_TIMEOUT_MS); }
-    catch (_) { /* collectors are best-effort */ }
-  }
-  // Intercept native file-chooser dialogs: any file input (or custom upload
-  // control that opens one) then fires Page.fileChooserOpened instead of
-  // showing the OS dialog (see handleFileChooser). Idempotent; re-sent on
-  // every fresh attach.
-  try {
-    await sendCdp(tabId, 'Page.setInterceptFileChooserDialog',
-                  { enabled: true }, COLLECTOR_TIMEOUT_MS);
-  } catch (_) { /* best-effort, same as the collectors */ }
-  // P5: keep the browser's normal download behaviour (do NOT redirect the
-  // destination) but ask for download events so an attachment navigation can
-  // be reported instead of silently doing nothing. Best-effort: older/newer
-  // protocol revisions may not answer this under a page-scoped session.
-  for (const method of ['Page.setDownloadBehavior', 'Browser.setDownloadBehavior']) {
+  //
+  // P2/P3 (batch 2): these are best-effort setup steps. They are issued in
+  // PARALLEL under one budget and MUST NOT reset the freshly attached session
+  // on timeout (noReset) — on a page blocked by a dialog they cannot answer,
+  // and the old per-step reset tore down the session before handle_dialog
+  // could use it (the P2 race). Backoff: no guard/no retry either.
+  const setup = (method, p) => sendCdp(tabId, method, p, COLLECTOR_TIMEOUT_MS,
+    { noGuard: true, noReset: true, noRetry: true });
+  const results = await Promise.allSettled([
+    setup('Network.enable', undefined),
+    setup('Runtime.enable', undefined),
+    setup('Page.enable', undefined),
+    // Intercept native file-chooser dialogs: any file input (or custom upload
+    // control that opens one) then fires Page.fileChooserOpened instead of
+    // showing the OS dialog (see handleFileChooser). Idempotent.
+    setup('Page.setInterceptFileChooserDialog', { enabled: true }),
+    // P5: keep the browser's normal download behaviour (do NOT redirect the
+    // destination) but ask for download events so an attachment navigation can
+    // be reported instead of silently doing nothing.
+    setup('Page.setDownloadBehavior', { behavior: 'default', eventsEnabled: true }),
+    setup('Browser.setDownloadBehavior', { behavior: 'default', eventsEnabled: true }),
+    // P5: the tab may already be sitting on a browser error page when we
+    // attach, so read the committed top frame once here; Page.frameNavigated
+    // keeps it current afterwards.
+    setup('Page.getFrameTree', {}),
+  ]);
+  const treeResult = results[6];
+  if (treeResult && treeResult.status === 'fulfilled') {
     try {
-      await sendCdp(tabId, method,
-                    { behavior: 'default', eventsEnabled: true },
-                    COLLECTOR_TIMEOUT_MS);
-      break;
-    } catch (_) { /* try the other domain, then give up */ }
+      const frame = (treeResult.value && treeResult.value.frameTree &&
+                     treeResult.value.frameTree.frame) || {};
+      if (/^chrome-error:\/\//i.test(String(frame.url || ''))) {
+        errorPage = {
+          url: String(frame.url || ''),
+          unreachableUrl: String(frame.unreachableUrl || ''),
+          at: Date.now(),
+        };
+      }
+    } catch (_) { /* best-effort */ }
   }
-  // P5: the tab may already be sitting on a browser error page when we attach
-  // (navigate happened before this attach), so read the committed top frame
-  // once here; Page.frameNavigated keeps it current afterwards.
-  try {
-    const tree = await sendCdp(tabId, 'Page.getFrameTree', {}, COLLECTOR_TIMEOUT_MS);
-    const frame = (tree && tree.frameTree && tree.frameTree.frame) || {};
-    if (/^chrome-error:\/\//i.test(String(frame.url || ''))) {
-      errorPage = {
-        url: String(frame.url || ''),
-        unreachableUrl: String(frame.unreachableUrl || ''),
-        at: Date.now(),
-      };
-    }
-  } catch (_) { /* best-effort */ }
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (!source || source.tabId !== debuggerTabId) return;   // only our session
+  if (!source || !attachedTabs.has(source.tabId)) return;  // only our sessions
   if (!params || typeof params !== 'object') return;
+  // Dialog lifecycle events are honoured for EVERY attached tab (a pinned
+  // dialog tab keeps reporting its own dialog); every other event describes
+  // only the active command session, so per-tab counters stay tab-scoped.
+  if (method !== 'Page.javascriptDialogOpening' &&
+      method !== 'Page.javascriptDialogClosed' &&
+      source.tabId !== debuggerTabId) return;
   try {
     if (method === 'Network.requestWillBeSent') {
       const req = params.request || {};
@@ -796,8 +988,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     } else if (method === 'Page.javascriptDialogOpening') {
       // The page is now blocked on the dialog until we resolve it via
       // Page.handleJavaScriptDialog (see handleDialog). Keep the newest
-      // opening — the page can only block on one dialog at a time.
+      // opening, tagged with its tab; one dialog per tab, but different tabs
+      // can each hold one.
+      const previous = pendingDialog;
       pendingDialog = {
+        tabId: source.tabId,
         type: String(params.type || 'alert'),
         message: typeof params.message === 'string' ? params.message : '',
         defaultPrompt: typeof params.defaultPrompt === 'string' ? params.defaultPrompt : '',
@@ -805,11 +1000,31 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
         hasBrowserHandler: !!params.hasBrowserHandler,
         openedAt: Date.now(),
       };
+      // This opening replaces any previous tab's entry: release that tab's
+      // pinned session (if any) so it is not left attached for no reason.
+      if (previous && previous.tabId !== source.tabId &&
+          previous.tabId !== debuggerTabId && attachedTabs.has(previous.tabId)) {
+        detachDebugger(previous.tabId);
+      }
+      // P1 (batch 2): in 'manual' mode wake any in-flight guarded command
+      // immediately — the action that triggered the dialog fails in the same
+      // action instead of waiting out the 30 s CDP cap (per-tab, see waiter).
+      if (dialogPolicy === 'manual') notifyDialogBlocked();
       // P1: default policy resolves the dialog at the browser layer right
       // now (fire-and-forget); 'manual' leaves it for handle_dialog.
       autoHandleDialog(source.tabId, pendingDialog);
     } else if (method === 'Page.javascriptDialogClosed') {
-      pendingDialog = null;
+      if (pendingDialog && pendingDialog.tabId === source.tabId) {
+        pendingDialog = null;
+        if (lastDialogAutoError && lastDialogAutoError.tabId === source.tabId) {
+          lastDialogAutoError = null;
+        }
+      }
+      // The dialog is gone: if we were pinning this tab while another session
+      // is active, release it so it is not left attached for no reason.
+      if (source.tabId !== debuggerTabId && attachedTabs.has(source.tabId)) {
+        detachDebugger(source.tabId);
+      }
     } else if (method === 'Page.frameNavigated') {
       // P5: track a top-frame commit so evaluate can tell an error page from a
       // working one. A successful document clears the error state.
@@ -888,7 +1103,8 @@ async function runtimeEvaluate(tabId, expression) {
                              // (the DevTools console semantics)
     });
   } catch (err) {
-    if (debuggerTabId === tabId) {
+    if (!err.dialogBlocking && debuggerTabId === tabId) {
+      attachedTabs.delete(tabId);
       debuggerTabId = null;
       chrome.debugger.detach({ tabId }).catch(() => { /* noop */ });
     }
@@ -1043,6 +1259,12 @@ async function handleMessage(ev) {
 // action takes, so attach logic is never duplicated. Returns
 // {ok:true, value} or {ok:false, error}; never throws.
 async function evaluateOnTab(tab, code) {
+  // A pending dialog on THIS tab fast-fails in ms even when the session is
+  // currently attached elsewhere: switching back to a blocked tab must not
+  // first pay the ~10 s attach-time domain-setup budget (and must not be
+  // affected by a dialog on a different tab).
+  const knownDialog = nativeDialogBlockError(tab.id);
+  if (knownDialog) return { ok: false, error: knownDialog.message };
   const attachError = await ensureDebugger(tab.id);
   if (attachError) {
     return { ok: false, error: classifyPageFailure(tab, attachError) || attachError };
@@ -1178,8 +1400,10 @@ async function handleCdp(msg) {
   } catch (err) {
     // Transport-level rejection while we believed the session was live means
     // the session died — reset it (same logic runtimeEvaluate uses) so the
-    // next command attaches a fresh one, then report the failure.
-    if (debuggerTabId === tabId) {
+    // next command attaches a fresh one, then report the failure. A deliberate
+    // dialog fast-fail keeps the session (see dialogBlockingError).
+    if (!err.dialogBlocking && debuggerTabId === tabId) {
+      attachedTabs.delete(tabId);
       debuggerTabId = null;
       chrome.debugger.detach({ tabId }).catch(() => { /* noop */ });
     }
@@ -1838,7 +2062,8 @@ async function cdpSend(tabId, method, params) {
   try {
     return await sendCdp(tabId, method, params);
   } catch (err) {
-    if (debuggerTabId === tabId) {
+    if (!err.dialogBlocking && debuggerTabId === tabId) {
+      attachedTabs.delete(tabId);
       debuggerTabId = null;
       chrome.debugger.detach({ tabId }).catch(() => { /* noop */ });
     }
@@ -2490,18 +2715,25 @@ async function autoHandleDialog(tabId, dialog) {
     await sendCdp(tabId, 'Page.handleJavaScriptDialog', { accept: true });
     // Resolved at the browser layer: keep the state machine consistent with
     // the real browser (Page.javascriptDialogClosed will fire too).
-    if (pendingDialog && pendingDialog.openedAt === dialog.openedAt) {
+    if (pendingDialog && pendingDialog.tabId === tabId &&
+        pendingDialog.openedAt === dialog.openedAt) {
       pendingDialog = null;
     }
-    lastDialogAutoError = null;
+    if (lastDialogAutoError && lastDialogAutoError.tabId === tabId) {
+      lastDialogAutoError = null;
+    }
   } catch (err) {
     lastDialogAutoError = {
+      tabId,
       type: dialog.type,
       message: dialog.message,
       url: dialog.url,
       error: String((err && err.message) || err),
       at: Date.now(),
     };
+    // P1 (batch 2): an in-flight command is now hard-blocked by a dialog whose
+    // auto-accept failed — fail it fast in the same action too.
+    notifyDialogBlocked();
     notifyDaemon({
       kind: 'auto_dialog_failed',
       text: 'auto-accept of a native ' + dialog.type + ' dialog failed: ' +
@@ -2549,17 +2781,44 @@ async function handleDialog(msg) {
   if (attachError) throw new Error(attachError);
 
   const deadline = Date.now() + timeoutMs;
-  while (!pendingDialog && Date.now() < deadline) {
+  // Wait for a dialog on the TARGET tab only; another tab's dialog is not
+  // ours to resolve (and must not be reported as a success here).
+  while (!(pendingDialog && pendingDialog.tabId === tabId) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 50));
   }
-  const dialog = pendingDialog;
+  const params = { accept };
+  if (promptText !== null) params.promptText = promptText;
+
+  const dialog = (pendingDialog && pendingDialog.tabId === tabId)
+    ? pendingDialog : null;
   if (!dialog) {
+    // P1/P2 (batch 2): a dialog that predates our attach never fires
+    // Page.javascriptDialogOpening (the frozen renderer cannot report it), so
+    // pendingDialog stays empty. After a recent CDP timeout we know the page
+    // was blocked, and Page.handleJavaScriptDialog is browser-level: try it
+    // once so this action also works on the attach-before-dialog boundary.
+    const recentlyBlocked = debuggerBlocked &&
+      debuggerBlocked.tabId === tabId &&
+      (Date.now() - debuggerBlocked.at < 120000);
+    if (recentlyBlocked) {
+      try {
+        await sendCdp(tabId, 'Page.handleJavaScriptDialog', params);
+        if (pendingDialog && pendingDialog.tabId === tabId) pendingDialog = null;
+        if (lastDialogAutoError && lastDialogAutoError.tabId === tabId) {
+          lastDialogAutoError = null;
+        }
+        debuggerBlocked = null;
+        send({ id: msg.id, ok: true, value: {
+          success: true, dialog: null, accept, promptText,
+          note: 'resolved a dialog that opened before the debugger attached',
+        } });
+        return;
+      } catch (_) { /* fall through to the clean no-dialog error */ }
+    }
     send({ id: msg.id, ok: false,
            error: `no JavaScript dialog is showing within ${timeoutMs}ms` });
     return;
   }
-  const params = { accept };
-  if (promptText !== null) params.promptText = promptText;
   try {
     await sendCdp(tabId, 'Page.handleJavaScriptDialog', params);
   } catch (err) {
@@ -2567,7 +2826,11 @@ async function handleDialog(msg) {
            error: String((err && err.message) || err) });
     return;
   }
-  pendingDialog = null;   // Page.javascriptDialogClosed also clears it
+  // Page.javascriptDialogClosed also clears it; scope the local clear too.
+  if (pendingDialog && pendingDialog.tabId === tabId) pendingDialog = null;
+  if (lastDialogAutoError && lastDialogAutoError.tabId === tabId) {
+    lastDialogAutoError = null;
+  }
   send({
     id: msg.id, ok: true,
     value: {
@@ -2769,6 +3032,33 @@ async function handleProbe(msg) {
 
   const paths = {};
 
+  // P3 (batch 2): while a native dialog blocks the tab EVERY injection path
+  // (chrome.scripting.executeScript included) waits on the frozen renderer, so
+  // the probe would hang behind the same block it is meant to report. Answer
+  // immediately with the dialog introspection and mark the skipped paths.
+  const dialogBlock = nativeDialogBlockError(tab.id) ||
+    probeDebuggerBlockedError(tab.id);
+  if (dialogBlock) {
+    const skipped = {
+      ok: false,
+      error: 'skipped: ' + dialogBlock.message,
+    };
+    for (const name of ['P4_executeScript_func_MAIN',
+                        'P5_executeScript_func_eval_MAIN',
+                        'P6_executeScript_func_ISOLATED',
+                        'P7_chromeDebugger_evaluate']) {
+      paths[name] = Object.assign({}, skipped);
+    }
+    send({ id: msg.id, ok: true, value: {
+      tab: tabInfo,
+      paths,
+      dialog: { policy: dialogPolicy, pending: pendingDialog || null,
+                lastError: lastDialogAutoError, blocking: true },
+      downloads: { count: downloadRecords.length, last: lastDownload },
+    } });
+    return;
+  }
+
   // P4-P6 — chrome.scripting.executeScript func-based paths (needs
   // "scripting" + host permissions; both are declared in manifest.json).
   await probePath(paths, 'P4_executeScript_func_MAIN',
@@ -2799,9 +3089,20 @@ async function handleProbe(msg) {
     // P1/P5 introspection: no debugger action needed (the probe's own P7 path
     // is what blocks while a native dialog is pending).
     dialog: { policy: dialogPolicy, pending: pendingDialog || null,
-              lastError: lastDialogAutoError },
+              lastError: lastDialogAutoError, blocking: false },
     downloads: { count: downloadRecords.length, last: lastDownload },
   } });
+}
+
+// P3 (batch 2): a recent CDP timeout means the managed session is (or was just)
+// blocked, so probe should skip the debugger paths rather than hang behind the
+// same block. Short-lived: a later successful command clears debuggerBlocked.
+function probeDebuggerBlockedError(tabId) {
+  if (!debuggerBlocked || debuggerBlocked.tabId !== tabId) return null;
+  if (Date.now() - debuggerBlocked.at > 60000) return null;
+  return new Error(debuggerBlocked.method + ' did not respond recently (' +
+                   debuggerBlocked.error + '); the debugger session may be ' +
+                   'blocked by a native dialog or credential prompt');
 }
 
 // Run one probe path and record {ok:true, value} or {ok:false, error}; never

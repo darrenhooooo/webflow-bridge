@@ -13,6 +13,8 @@ testing the dialog / download / failed-page handling of the bridge:
   /plain                ordinary page
   /dialogs              alert / confirm / prompt buttons (scheduled, so the
                         triggering command returns before the dialog opens)
+  /autoalert            alerts on load (dialog opens before a debugger can
+                        attach — the attach-before-dialog boundary)
   /popup                target=_blank link + window.open button
 
 Usage:
@@ -38,6 +40,7 @@ INDEX = b"""<!doctype html>
   <li><a id="au" href="/auth">401 basic-auth page</a></li>
   <li><a id="sl" href="/slow">slow page (12s)</a></li>
   <li><a id="dg" href="/dialogs">dialogs page</a></li>
+  <li><a id="aa" href="/autoalert">autoalert page (alert on load)</a></li>
   <li><a id="pp" href="/popup">popup page</a></li>
   <li><a id="fm" href="/form">form page</a></li>
   <li><a id="bg" href="/big">big page (PDF/screenshot)</a></li>
@@ -80,6 +83,16 @@ DIALOGS = b"""<!doctype html>
   document.getElementById('al').onclick = () => schedule(() => alert('range alert'));
   document.getElementById('cf').onclick = () => schedule(() => confirm('range confirm?'));
   document.getElementById('pr').onclick = () => schedule(() => prompt('range prompt?', 'default-text'));
+</script>
+"""
+
+AUTOALERT = b"""<!doctype html>
+<meta charset=utf-8>
+<title>autoalert</title>
+<h1>autoalert</h1>
+<p>this page opens an alert by itself, shortly after load</p>
+<script>
+  setTimeout(() => alert('range auto alert'), 150);
 </script>
 """
 
@@ -133,6 +146,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(200, "text/html; charset=utf-8", BEFOREUNLOAD)
         elif path == "/dialogs":
             self._send(200, "text/html; charset=utf-8", DIALOGS)
+        elif path == "/autoalert":
+            self._send(200, "text/html; charset=utf-8", AUTOALERT)
         elif path == "/popup":
             self._send(200, "text/html; charset=utf-8", POPUP)
         elif path == "/plain":
