@@ -33,10 +33,40 @@ jobs:
 
       - name: Mirror CNB tags -> origin tags
         run: |
+          set -o pipefail
           # 用 --force 推 tag：GitHub 侧可能有 CNB 已删除或已改写的同名 tag，
           # 只有 force 才能让远端 tag 与 CNB 完全一致，否则 push 会被拒绝。
           git fetch cnb --tags --force
-          git push --force --tags "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          remote="https://x-access-token:${GITHUB_TOKEN:-}@github.com/${GITHUB_REPOSITORY}.git"
+          # 逐个 tag 推：一条 --force --tags 推全部时，任何一个 tag 被拒绝都会中断整批，
+          # 后面的 tag 就同步不上了。逐个推才能把「平台限制」和「真错误」分开处理。
+          skipped=()
+          pushed=()
+          failed=()
+          for tag in $(git tag --list | sort -V); do
+            if out=$(git push --force "$remote" "refs/tags/${tag}:refs/tags/${tag}" 2>&1); then
+              pushed+=("$tag")
+            elif printf '%s' "$out" | grep -q 'refusing to allow a GitHub App to create or update workflow'; then
+              # 已知平台限制：GITHUB_TOKEN 是 GitHub App 身份，平台硬性禁止它创建/更新
+              # .github/workflows/ 下的文件（permissions: 也没有 workflows 键可开）。
+              # 回填旧 tag 会把该 tag 提交的整棵树带过去，其中 workflow 与当前默认分支
+              # 不一致，于是被拒。将来的新 tag（workflow 与 main 一致）不受影响。
+              # 因此这里只降级并提示，不算 job 失败。
+              echo "::warning::tag $tag 被 GitHub 平台限制拒绝：GITHUB_TOKEN 作为 GitHub App 身份无权创建/更新 .github/workflows/ 下的文件（旧提交中的 workflow 与默认分支不一致）。请用用户身份手动推送一次：git push origin refs/tags/$tag:refs/tags/$tag --force"
+              skipped+=("$tag")
+            else
+              # 不含平台限制签名 → 真错误：原样打印输出并计入失败
+              printf '%s\n' "$out" >&2
+              echo "推送 tag $tag 失败（非平台限制，真实错误）" >&2
+              failed+=("$tag")
+            fi
+          done
+          echo "已跳过（平台限制，需用用户身份创建一次）: ${skipped[*]:-无}"
+          echo "已成功同步: ${pushed[*]:-无}"
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "真实错误导致失败的 tag: ${failed[*]}" >&2
+            exit 1
+          fi
 
       - name: Create GitHub Releases for new tags
         env:
@@ -46,6 +76,12 @@ jobs:
           # 单轮失败只记一次账并 continue，循环结束后统一以失败计数决定 job 成败
           fail=0
           for tag in $(git tag --list 'v[0-9]*' | sort -V); do
+            # 只处理 origin 上真实存在的 tag：本地可能因平台限制未能推上去，
+            # 若不校验，gh release create 会在错误的位置新建同名 tag，语义就错了。
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "origin 上不存在 tag $tag，跳过（不创建 Release）"
+              continue
+            fi
             if gh release view "$tag" >/dev/null 2>&1; then
               echo "release $tag 已存在，跳过"
               continue
