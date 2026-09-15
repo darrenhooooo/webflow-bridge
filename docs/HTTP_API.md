@@ -1,6 +1,6 @@
 # Webflow Bridge HTTP API — zero-SDK driver guide (standard browser-bridge agent-tool names)
 
-**Webflow Bridge Command API v1.2.0** · base URL `http://127.0.0.1:10086`
+**Webflow Bridge Command API v1.2.1** · base URL `http://127.0.0.1:10086`
 · OpenAPI description: [`../openapi/openapi.yaml`](../openapi/openapi.yaml)
 
 ## What this proves
@@ -61,6 +61,9 @@ curl -s -X POST http://127.0.0.1:10086/command \
 Every `/command` response — success or error, including `401`/`403`/`503` —
 also carries a top-level `browser` field naming which browser the extension is
 connected in: `"chrome"`, `"edge"`, or `""` when no extension is connected.
+A response may additionally carry a top-level `notice` object (unsolicited
+feedback: an auto dialog-accept failure, a download started, control handed to
+a new tab); see [Native dialogs, downloads and failed pages](#native-dialogs-downloads-and-failed-pages).
 
 ## GET /status
 
@@ -70,6 +73,14 @@ bearer token as `POST /command`; a missing or invalid token answers `401`.
 Unlike `/command`, this endpoint returns `200` even when nothing is connected
 — answering "is it connected?" is its whole job.
 
+`/status` is deliberately a **connection + settings** endpoint, and it always
+answers in milliseconds. It does **not** prove the debugger can act on the
+current page: native dialogs (when the policy is `manual`) and credential
+prompts block the page, and only a real browser action can reveal that. For an
+activity check use `probe` — but note `probe` drives the debugger, so it too
+can block behind a dialog and now fails with a self-explaining error instead of
+hanging for the full round-trip cap.
+
 ```bash
 curl -s http://127.0.0.1:10086/status \
   -H "Authorization: Bearer $WBF_TOKEN"
@@ -78,17 +89,25 @@ curl -s http://127.0.0.1:10086/status \
 Connected to Edge:
 
 ```json
-{"status": "ok", "data": {"extension_connected": true, "browser": "edge", "ws_port": 10087, "connected_since": "2026-09-15T14:32:07.123456+08:00"}}
+{"status": "ok", "data": {"extension_connected": true, "browser": "edge", "ws_port": 10087, "connected_since": "2026-09-15T14:32:07.123456+08:00", "extension_stale": false, "last_extension_frame_ms_ago": 120, "dialog_policy": "auto-accept", "last_notice": null}}
 ```
 
 Nothing connected:
 
 ```json
-{"status": "ok", "data": {"extension_connected": false, "browser": "", "ws_port": 10087, "connected_since": null}}
+{"status": "ok", "data": {"extension_connected": false, "browser": "", "ws_port": 10087, "connected_since": null, "extension_stale": false, "last_extension_frame_ms_ago": null, "dialog_policy": "auto-accept", "last_notice": null}}
 ```
 
 `browser` is `"chrome"`, `"edge"` or `""`; `connected_since` is a
 local-timezone ISO 8601 timestamp (or `null` when nothing is connected).
+`extension_stale` / `last_extension_frame_ms_ago` describe the extension's own
+**JS heartbeat** (its `{"type":"ping"}` frames): a stale value means the MV3
+service worker went quiet — it says nothing about the debugger session.
+`dialog_policy` is the live native-dialog policy (`auto-accept` | `manual`,
+see `set_dialog_policy`). `last_notice` is the newest unsolicited extension
+feedback (auto-accept failure / download started / control moved to a new
+tab), and the same object is attached to the next `POST /command` response as
+an additive top-level `notice` field.
 
 ## Actions — one curl per action
 
@@ -407,6 +426,125 @@ curl -s -X POST http://127.0.0.1:10086/command \
   -H "Authorization: Bearer $WBF_TOKEN" \
   -d '{"action":"tabs_close_all_but","args":{"tabId":<TAB_ID>},"session":"default"}'
 ```
+
+## Native dialogs, downloads and failed pages
+
+### handle_dialog — resolve a native JavaScript dialog
+
+A page can block itself on a **native JavaScript dialog** (`alert`, `confirm`,
+`prompt`, `beforeunload`). While such a dialog is showing, the page's main
+thread is frozen: `Runtime.evaluate`, screenshots and DOM actions on that tab
+cannot complete. `handle_dialog` accepts, dismisses or answers the dialog that
+is currently showing on the target tab (default: the active tab).
+
+```bash
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"handle_dialog","args":{"accept":true},"session":"default"}'
+# => {"status":"ok","data":{"value":{"success":true,"dialog":{"type":"confirm","message":"sure?","defaultPrompt":""},"accept":true,"promptText":null}}}
+```
+
+Args:
+
+| arg | type | meaning |
+|---|---|---|
+| `accept` | boolean, optional, default `true` | `true` = OK, `false` = Cancel / leave. |
+| `promptText` | string, optional | text returned by a `prompt()`; without it a `prompt` returns its default value. |
+| `timeoutMs` | integer 1..15000, optional, default `2000` | how long to wait for the dialog to open before failing. |
+| `tabId` | integer, optional | target tab (default: active). |
+
+**2000 ms wait semantics.** `handle_dialog` does **not** open dialogs. It waits
+up to `timeoutMs` (default 2000 ms) for a `Page.javascriptDialogOpening` event
+on the target tab — the caller usually clicks the element that opens the dialog
+first — then resolves it. If no dialog appears in that window it answers:
+
+```json
+{"status": "error", "error": "no JavaScript dialog is showing within 2000ms", "browser": "chrome"}
+```
+
+**Default policy: auto-accept.** Since v1.2.1 the bridge accepts every native
+dialog automatically the moment it opens (`accept: true`; a `prompt` returns
+its default text), so a blocked page unblocks by itself and the next command
+succeeds in milliseconds. This is the daemon's default and the extension's
+default, so it works with no configuration. The known cost (accepted): a
+`beforeunload` dialog is dismissed with *leave*, so unsaved page state can be
+lost.
+
+**Turning it off (manual mode).** Start the daemon with `--no-auto-dialog`, or
+switch at runtime:
+
+```bash
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"set_dialog_policy","args":{"policy":"manual"},"session":"default"}'
+# => {"status":"ok","data":{"value":{"policy":"manual","extension_notified":true}}}
+```
+
+`policy` is `auto-accept` | `manual`. The value is mirrored in `GET /status`
+(`dialog_policy`) and pushed to the extension immediately (no browser action,
+so it works even while a dialog is blocking a page). In `manual` mode a dialog
+stays pending until an explicit `handle_dialog`; a debugger command on the
+blocked tab then fails with a self-explaining error within ~30 s instead of
+hanging for two minutes:
+
+```text
+CDP Runtime.evaluate did not respond within 30s: the page may be blocked by a
+native dialog or credential prompt (try handle_dialog), or the debugger session
+is dead (retrying re-attaches)
+```
+
+If an automatic accept itself fails, the failure is never swallowed: it is
+recorded in `GET /status` (`last_notice`) and on `probe`
+(`dialog.lastError`/`dialog.policy`), and it rides the next `/command`
+response as a top-level `notice`.
+
+### list_downloads — native downloads are no longer invisible
+
+Navigating to a URL with `Content-Disposition: attachment` starts a download
+without changing the page. The extension records each `Page.downloadWillBegin`
+and reports it: the triggering `navigate` response carries an additive
+`notice` (`{"kind":"download_started", ...}`), and the full (newest-first)
+record is queryable with no browser action:
+
+```bash
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"list_downloads","args":{},"session":"default"}'
+# => {"status":"ok","data":{"value":{"downloads":[{"guid":"...","url":"...","suggestedFilename":"report.pdf","state":"started","at":1700000000000}],"count":1}}}
+```
+
+The download's destination is **not** changed (no `downloadPath` is set).
+`limit` (positive integer) caps the returned list.
+
+### Popups move control silently — watch the notice
+
+A page that opens a popup (`target="_blank"` / `window.open`) makes the new tab
+active, so the next active-tab action targets the popup. When the extension
+sees a tab created by the controlled tab it adds a `notice`
+(`{"kind":"control_moved", "tabId": <n>, "url": "..."}`) to the response;
+`tabs_list` keeps listing every tab. Pass an explicit `tabId` to keep driving
+the original page.
+
+### Failed pages are classified, not opaque
+
+`evaluate` (and the other actions that read the page) refuse to return
+meaningless values from a browser error page and name the reason: **protected
+page** (`chrome://` / Web Store — "*the browser does not allow debugger access
+to ...*"), **failed to load / certificate / cancelled auth**
+(`chrome-error://chromewebdata/`, with the unreachable URL), and the
+`Cannot attach to this target.` case. The three no longer look alike.
+
+### Troubleshooting a stuck command
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Any debugger action hangs, then a `CDP ... did not respond within 30s` error mentioning a dialog | A native dialog (or credential prompt) is blocking the page in `manual` mode | `handle_dialog`, or switch to `auto-accept`; JS dialogs are auto-accepted by default |
+| `probe` never returns / times out | `probe` drives the debugger, so it also blocks behind a dialog | Resolve the dialog; `probe` now fails with an explicit error instead of hanging |
+| `no JavaScript dialog is showing within 2000ms` | No dialog was open (already auto-accepted?) or the dialog is on another tab | Check `dialog.policy` via `probe`; pass `tabId` |
+| `extension_connected: true` but nothing works | The WebSocket is up but the debugger is blocked/dead | `/status` is connection-only; run `probe` or retry (a retry re-attaches) |
 
 ## Error shapes (read them without an SDK)
 

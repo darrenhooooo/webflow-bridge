@@ -56,6 +56,7 @@ import socket
 import struct
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HTTP_HOST = "127.0.0.1"
@@ -111,6 +112,19 @@ CLOSE_GRACE_SECS = 0.8      # grace after the WS close frame so Firefox frees
 # ---------------------------------------------------------------------------
 EVENT_CAP = 300            # ring cap for the network/console collectors
 HUMANIZE = False           # --humanize: human-like pacing for input actions
+# P4: native user-prompt policy, aligned with the Chrome edition. 'auto-accept'
+# (default) answers browsingContext.userPromptOpened with
+# browsingContext.handleUserPrompt {accept:true}; 'manual' leaves it pending
+# for the explicit handle_dialog action. --no-auto-dialog switches to 'manual'.
+DIALOG_POLICY = "auto-accept"
+
+
+def set_dialog_policy(policy: str) -> str:
+    """Set the daemon-wide native user-prompt policy (P4 runtime switch)."""
+    global DIALOG_POLICY
+    DIALOG_POLICY = policy
+    return DIALOG_POLICY
+
 P2_NET_EVENTS = ["network.beforeRequestSent", "network.responseStarted",
                  "network.responseCompleted", "network.fetchError"]
 P2_LOG_EVENTS = ["log.entryAdded"]
@@ -365,6 +379,8 @@ class FfBiDi:
                                    #   mimeType,size,timestamp}] (ring)
         self.console_events = []   # [{type,text,timestamp}] (ring)
         self.pending_dialog = None # single-slot user-prompt state machine
+        self.dialog_auto_error = None  # P4: last auto-accept failure (visible
+                                       # via probe) or None
 
     # -------- state accessors ---------------------------------------------
 
@@ -591,7 +607,13 @@ class FfBiDi:
         except concurrent.futures.TimeoutError:
             with self._state_lock:
                 self._pending.pop(str(rid), None)
-            raise FfActionError("timeout", f"timeout: firefox did not reply to {method} within {timeout:.0f}s")
+            raise FfActionError(
+                "timeout",
+                f"timeout: firefox did not reply to {method} within "
+                f"{timeout:.0f}s — the page may be blocked by a native "
+                "user prompt (send {\"action\":\"handle_dialog\"}), or the "
+                "BiDi session is stuck (GET /status shows last_dialog_error; "
+                "restarting Firefox clears a stale single session slot)")
         if not isinstance(resp, dict):
             raise FfActionError("bad-reply", "malformed biDi reply")
         if resp.get("type") == "error":
@@ -690,11 +712,50 @@ class FfBiDi:
                         "context": params.get("context"),
                         "openedAt": time.time(),
                     }
+                    dlg = dict(self.pending_dialog)
+                # P4: default policy accepts the prompt from a SEPARATE
+                # thread — command() waits for a reply that only THIS reader
+                # thread can deliver, so calling it inline would deadlock.
+                if DIALOG_POLICY == "auto-accept":
+                    threading.Thread(
+                        target=self._auto_accept_prompt, args=(dlg,),
+                        daemon=True, name="ff-auto-prompt").start()
             elif method == "browsingContext.userPromptClosed":
                 with self._ev_lock:
                     self.pending_dialog = None
         except Exception:  # noqa: BLE001
             log.warning("biDi event ingest failed for %s", method)
+
+    def _auto_accept_prompt(self, dlg: dict) -> None:
+        """P4: answer one fresh userPromptOpened with accept:true.
+
+        Runs on its own thread (never the reader thread).  A failure is kept
+        in dialog_auto_error (served by probe) and the prompt slot is left
+        pending so an explicit handle_dialog can still resolve it.
+        """
+        if DIALOG_POLICY != "auto-accept":
+            return
+        ctx = dlg.get("context")
+        params: dict = {"context": ctx, "accept": True}
+        if dlg.get("type") == "prompt" and dlg.get("defaultValue"):
+            # Firefox returns "" when a prompt is accepted without userText;
+            # keeping the default aligns it with the Chrome behaviour.
+            params["userText"] = dlg["defaultValue"]
+        try:
+            self.command("browsingContext.handleUserPrompt", params,
+                         timeout=QUICK_TIMEOUT)
+            with self._ev_lock:
+                cur = self.pending_dialog
+                if cur is not None and cur.get("context") == ctx:
+                    self.pending_dialog = None
+        except Exception as exc:  # noqa: BLE001
+            self.dialog_auto_error = {
+                "type": dlg.get("type"), "message": dlg.get("message"),
+                "context": ctx, "error": str(exc),
+                "at": datetime.now().astimezone().isoformat(),
+            }
+            log.warning("auto-accept of %s prompt failed: %s",
+                        dlg.get("type"), exc)
 
     def _net_seen(self, params: dict, create: bool = False,
                   completed: bool = False) -> None:
@@ -1291,7 +1352,11 @@ class Bridge:
             except Exception:                           # noqa: BLE001
                 pass
         return {"connected": connected, "sessionId": sid,
-                "contexts": ctxs, "firefox": version}
+                "contexts": ctxs, "firefox": version,
+                # P4: dialog switch + last auto-accept failure (Chrome parity).
+                "dialog": {"policy": DIALOG_POLICY,
+                           "pending": self.ff.pending_dialog,
+                           "lastError": self.ff.dialog_auto_error}}
 
     # -------- dispatch -----------------------------------------------------
 
@@ -1333,6 +1398,16 @@ class Bridge:
                          "error": "cdp not supported on firefox backend"}
         if action == "probe":
             return 200, {"status": "ok", "data": {"value": self._probe()}}
+        if action == "set_dialog_policy":
+            # P4: runtime switch; no live session required, so it works while
+            # a user prompt is blocking a page.
+            policy = args.get("policy")
+            if policy not in ("auto-accept", "manual"):
+                raise FfActionError(
+                    "", "'args.policy' must be 'auto-accept' or 'manual'")
+            applied = set_dialog_policy(policy)
+            return 200, {"status": "ok", "data": {"value": {
+                "policy": applied, "extension_notified": True}}}
         if action not in {"evaluate", "navigate", "tabs_list", "tabs_open",
                           "tabs_close", "tabs_close_all_but", "tabs_activate",
                           "find_tab",
@@ -2026,7 +2101,27 @@ class CommandHandler(BaseHTTPRequestHandler):
     def do_GET(self):                                   # noqa: N802
         if self.path == "/config":
             return self._send_json(200, {"token": AUTH_TOKEN or ""})
-        return self._send_json(405, {"error": "only POST /command is supported"})
+        if self.path == "/status":
+            # P4/P6: connection + dialog introspection, no browser action.
+            # Same bearer token as POST /command.  Always fast: it never
+            # touches the BiDi session (probe is the activity check, and it
+            # can block behind a native prompt).
+            who = str(self.client_address[0]) if self.client_address else ""
+            if not check_auth(self.headers.get("Authorization")):
+                audit("unauthorized http", who, detail=self.path)
+                return self._send_json(401, {
+                    "error": "unauthorized: missing or invalid bearer token"})
+            ff = BRIDGE.ff
+            with ff._ev_lock:
+                pending = ff.pending_dialog
+            return self._send_json(200, {"status": "ok", "data": {
+                "firefox_connected": ff.is_connected(),
+                "browser": "firefox",
+                "bidi_port": FF_PORT,
+                "dialog_policy": DIALOG_POLICY,
+                "pending_dialog": pending,
+                "last_dialog_error": ff.dialog_auto_error}})
+        return self._send_json(405, {"error": "only POST /command and GET /status are supported"})
 
     def _send_json(self, status: int, obj) -> None:
         raw = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -2053,7 +2148,7 @@ BRIDGE = None           # assigned in main() before serve_forever
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, BRIDGE, HUMANIZE
+    global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, BRIDGE, HUMANIZE, FF_PORT
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s")
     parser = argparse.ArgumentParser(
@@ -2074,6 +2169,10 @@ def main() -> None:
     parser.add_argument("--humanize", action="store_true",
                         help="daemon-wide humanize pacing for input actions "
                              "(click/fill/type_text/send_key/mouse_click)")
+    parser.add_argument("--no-auto-dialog", action="store_true",
+                        help="do NOT auto-accept native user prompts "
+                             "(alert/confirm/prompt/beforeunload): leave them "
+                             "pending for handle_dialog (default: auto-accept)")
     opts = parser.parse_args()
     if opts.allow_no_auth:
         AUTH_REQUIRED = False
@@ -2081,7 +2180,11 @@ def main() -> None:
         AUDIT_PATH = opts.audit
     if opts.humanize:
         HUMANIZE = True
+    if opts.no_auto_dialog:
+        set_dialog_policy("manual")             # P4: explicit handle_dialog only
     AUTH_TOKEN = load_auth_token()
+    # Keep the module-level port in sync so GET /status reports the real one.
+    FF_PORT = opts.ff_port
     # Fix 2: build the BiDi client + Bridge here, after --ff-port has been
     # parsed, so opts.ff_port (default 9222) actually reaches FfBiDi.
     log.info("targeting Firefox remote agent at ws://%s:%d/session",
@@ -2113,6 +2216,10 @@ def main() -> None:
         print(f"  AUDIT: JSONL -> {AUDIT_PATH}")
     if HUMANIZE:
         print("  MODE  : humanize pacing ON (daemon-wide)")
+    print(f"  DIALOG: {DIALOG_POLICY} "
+          + ("(native user prompts are accepted automatically)"
+             if DIALOG_POLICY == "auto-accept"
+             else "(native user prompts wait for handle_dialog)"))
     print("  Open Firefox first with  ff-launch.bat  (real profile, port "
           f"{opts.ff_port}).")
     print("  Then evaluate:  curl -X POST "

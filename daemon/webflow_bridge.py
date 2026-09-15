@@ -208,6 +208,19 @@ AUTH_REQUIRED = True         # --allow-no-auth flips to False
 AUDIT_PATH = None            # optional JSONL audit file (--audit)
 CDP_ALLOWLIST = None         # optional set/list of CDP methods (--cdp-allowlist)
 HUMANIZE = False             # --humanize: human-like pacing for every action
+# P1: native JS-dialog policy. 'auto-accept' resolves every native dialog at
+# the browser layer as soon as it opens (the extension default, pushed to it
+# on connect); 'manual' leaves the dialog for an explicit handle_dialog.
+# --no-auto-dialog switches to 'manual'. Runtime switch: the
+# set_dialog_policy action (also pushed to the extension).
+DIALOG_POLICY = "auto-accept"
+
+
+def set_dialog_policy(policy: str) -> str:
+    """Set the daemon-wide native-dialog policy (P1 runtime switch)."""
+    global DIALOG_POLICY
+    DIALOG_POLICY = policy
+    return DIALOG_POLICY
 
 
 def load_auth_token(path: str | None = None) -> str | None:
@@ -394,6 +407,12 @@ class Bridge:
         self._last_app_rx = time.monotonic()  # last app-level frame (0x1/0x2)
         self._pending = {}          # request id -> concurrent.futures.Future
         self._ids = itertools.count(1)
+        # P1/P5: unsolicited extension notices (auto dialog failure, download
+        # started, control handed to a new tab). `_notices` are pending ones
+        # attached to the next /command response; `_last_notice` is retained
+        # for GET /status.
+        self._notices = []
+        self._last_notice = None
         # Per-request humanize flag (P1): dispatch() sets it on the handling
         # thread, _roundtrip() reads it before forwarding the WS payload.
         # threading.local keeps concurrent HTTP requests on different threads
@@ -512,6 +531,15 @@ class Bridge:
                     fut.set_result(err)
         log.info("extension connected (%s) -> ws://%s:%d ready",
                  browser or "unknown", WS_HOST, WS_PORT)
+        # P1: make the extension's dialog policy match the daemon's current
+        # setting (default auto-accept; 'manual' after --no-auto-dialog or a
+        # runtime set_dialog_policy). Best-effort: a failed push does not
+        # affect the connection.
+        try:
+            self._send_ws({"type": "set_dialog_policy",
+                           "policy": DIALOG_POLICY})
+        except Exception:                           # noqa: BLE001
+            pass
 
         # --- frame loop ---
         try:
@@ -571,6 +599,10 @@ class Bridge:
     def _handle_ws_message(self, msg) -> None:
         if not isinstance(msg, dict):
             return
+        if msg.get("type") == "notice":
+            # P1/P5: unsolicited extension feedback, no request id.
+            self._record_notice(msg)
+            return
         if msg.get("type") in ("ping", "pong", "hello"):
             return                                  # keepalive/greeting
         rid = msg.get("id")
@@ -614,6 +646,27 @@ class Bridge:
 
     # -------- public connection introspection ------------------------------
 
+    def _record_notice(self, msg: dict) -> None:
+        """Keep one unsolicited extension notice.
+
+        Pending ones are attached (oldest first) to the next POST /command
+        response as a top-level `notice` field; the newest is always readable
+        at GET /status (`last_notice`) so a failure stays visible even when no
+        further command is sent.
+        """
+        entry = {k: msg.get(k) for k in ("kind", "text", "at", "tabId",
+                                         "url", "download", "dialog")
+                 if k in msg}
+        with self._lock:
+            self._last_notice = entry
+            self._notices.append(entry)
+            del self._notices[:-5]                  # bounded, keep 5 newest
+
+    def pop_notice(self):
+        """Oldest pending notice (or None) — consumed by POST /command."""
+        with self._lock:
+            return self._notices.pop(0) if self._notices else None
+
     def client_browser(self) -> str:
         """Which browser the connected extension runs in ('chrome'/'edge'/'').
 
@@ -633,6 +686,8 @@ class Bridge:
             connected = self._ws_sock is not None
             browser = self._client_browser
             since = self._connected_since
+            last_notice = self._last_notice
+            age = (time.monotonic() - self._last_app_rx) if connected else None
         return {
             "extension_connected": connected,
             "browser": browser,
@@ -640,6 +695,18 @@ class Bridge:
             "connected_since": (
                 datetime.fromtimestamp(since).astimezone().isoformat()
                 if since is not None else None),
+            # P6: /status is CONNECTION-only and always fast — it never
+            # triggers a browser action. extension_stale answers whether the
+            # extension's own JS has gone quiet (MV3 worker suspended); it
+            # does NOT prove the debugger can act on the page (use `probe` for
+            # that; probe fails fast with a self-explaining error while a
+            # native dialog is pending). dialog_policy and last_notice are the
+            # P1/P5 feedback fields.
+            "extension_stale": bool(age is not None and age > WS_STALE_AFTER),
+            "last_extension_frame_ms_ago": (
+                int(age * 1000) if age is not None else None),
+            "dialog_policy": DIALOG_POLICY,
+            "last_notice": last_notice,
         }
 
     def _send_ws(self, obj: dict) -> None:
@@ -730,8 +797,14 @@ class Bridge:
         except concurrent.futures.TimeoutError:
             with self._lock:
                 self._pending.pop(rid, None)
-            return False, {"http": 200,
-                           "error": f"timeout: extension did not reply within {EVAL_TIMEOUT}s"}
+            return False, {"http": 200, "error": (
+                f"timeout after {EVAL_TIMEOUT}s: the extension never replied to "
+                "this command. Likely causes: the page is blocked by a native "
+                "dialog or credential prompt — send {\"action\":\"handle_dialog\"} "
+                "(default policy auto-accepts, so this is unusual), the "
+                "debugger session is dead (retrying re-attaches), or the "
+                "extension service worker is suspended (reload the extension). "
+                "Run GET /status and {\"action\":\"probe\"} for diagnostics.")}
         if resp.get("ok"):
             return True, resp
         if resp.get("disconnected"):
@@ -1205,6 +1278,37 @@ class Bridge:
             ok, res = self._roundtrip(ws_payload)
             if ok:
                 return 200, {"status": "ok", "data": {"value": res.get("value")}}
+        elif action == "set_dialog_policy":
+            # P1: runtime switch for native-dialog handling. No browser action
+            # is needed, so this works even while a dialog is blocking the
+            # page; the value is pushed to the extension as a control frame
+            # and mirrored in GET /status (dialog_policy).
+            policy = args.get("policy")
+            if policy not in ("auto-accept", "manual"):
+                return 200, {"status": "error",
+                             "error": "'args.policy' must be 'auto-accept' or 'manual'"}
+            applied = set_dialog_policy(policy)
+            notified = False
+            try:
+                BRIDGE._send_ws({"type": "set_dialog_policy", "policy": applied})
+                notified = True
+            except ExtensionNotConnected:
+                pass                                # applied on next connect
+            return 200, {"status": "ok", "data": {"value": {
+                "policy": applied, "extension_notified": notified}}}
+        elif action == "list_downloads":
+            # P5: queryable native-download record (no browser action).
+            rid = self._next_request_id()
+            ws_payload = {"id": rid, "action": "list_downloads"}
+            limit = args.get("limit")
+            if limit is not None:
+                if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+                    return 200, {"status": "error",
+                                 "error": "'args.limit' must be a positive integer when provided"}
+                ws_payload["limit"] = limit
+            ok, res = self._roundtrip(ws_payload)
+            if ok:
+                return 200, {"status": "ok", "data": {"value": res.get("value")}}
         elif action == "handle_file_chooser":
             rid = self._next_request_id()
             file = args.get("file")
@@ -1433,9 +1537,17 @@ class CommandHandler(BaseHTTPRequestHandler):
         """POST /command responder: stamp every response body with the
         top-level "browser" field (which browser the connected extension runs
         in — 'chrome' / 'edge' / '' when none is connected). Pure addition:
-        existing fields and shapes are untouched."""
+        existing fields and shapes are untouched.
+
+        P1/P5: also attach at most one pending unsolicited extension notice
+        (auto dialog-accept failure, download started, control moved to a new
+        tab) as an additive top-level "notice" field, so a client that never
+        calls GET /status still sees it on its next command."""
         if isinstance(body, dict):
             body["browser"] = BRIDGE.client_browser()
+            notice = BRIDGE.pop_notice()
+            if notice is not None:
+                body["notice"] = notice
         self._send_json(status, body)
 
     def _send_json(self, status: int, obj) -> None:
@@ -1477,6 +1589,11 @@ def main() -> None:
     parser.add_argument("--humanize", action="store_true",
                         help="human-like pacing for browser actions "
                              "(random delays/jitter/scroll micro-moves)")
+    parser.add_argument("--no-auto-dialog", action="store_true",
+                        help="do NOT auto-accept native JS dialogs "
+                             "(alert/confirm/prompt/beforeunload): leave them "
+                             "pending for the explicit handle_dialog action "
+                             "(default: auto-accept)")
     opts = parser.parse_args()
     if opts.allow_no_auth:
         AUTH_REQUIRED = False
@@ -1487,6 +1604,8 @@ def main() -> None:
                          if s.strip()]
     if opts.humanize:
         HUMANIZE = True
+    if opts.no_auto_dialog:
+        set_dialog_policy("manual")             # P1: explicit handle_dialog only
     AUTH_TOKEN = load_auth_token()          # P0-1/P0-3: shared-secret source
     try:
         BRIDGE.start_ws_server()
@@ -1517,6 +1636,10 @@ def main() -> None:
         print("  CDP   : allowlist -> " + " ".join(CDP_ALLOWLIST))
     if HUMANIZE:
         print("  MODE  : humanize pacing ON (daemon-wide)")
+    print(f"  DIALOG: {DIALOG_POLICY} "
+          + ("(native JS dialogs are accepted automatically)"
+             if DIALOG_POLICY == "auto-accept"
+             else "(native JS dialogs wait for handle_dialog)"))
     print("  Load the 'Webflow Bridge' extension (Developer mode -> Load unpacked -> extension/):")
     print("    Chrome: chrome://extensions      Edge: edge://extensions")
     print("  Then evaluate:  curl -X POST http://127.0.0.1:10086/command \\")

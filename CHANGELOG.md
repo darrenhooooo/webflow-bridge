@@ -1,5 +1,63 @@
 # Changelog
 
+## v1.2.1 — 2026-09-15
+
+### Fixed
+- Native JavaScript dialogs (`alert` / `confirm` / `prompt` / `beforeunload`) no
+  longer freeze the bridge. They are now **accepted automatically** as soon as
+  they open, so a blocked page unblocks by itself and the next command succeeds
+  in milliseconds. If an automatic accept fails, the failure is surfaced
+  (`GET /status` → `last_notice`, `probe` → `dialog.lastError`, and a `notice`
+  on the next `/command` response) instead of being swallowed.
+- Every `chrome.debugger.sendCommand` now has a timeout. A command stuck behind
+  a dialog or a dead debugger session fails in ~30 s with a self-explaining
+  error instead of silently waiting out the daemon's 120 s round-trip cap. The
+  timed-out session is reset so the next command re-attaches.
+- Downloads are no longer invisible: `navigate` to a `Content-Disposition:
+  attachment` URL reports `download_started` (name + URL) and the record is
+  queryable via the new `list_downloads` action. The download destination is
+  unchanged.
+- A page that opens a popup (`target="_blank"` / `window.open`) now produces a
+  `control_moved` notice carrying the new tab id and URL; `tabs_list` is
+  unchanged.
+- Browser error pages are classified instead of opaque: protected pages
+  (`chrome://` / Web Store), failed-to-load / certificate / cancelled-auth
+  pages (`chrome-error://chromewebdata/`), and `Cannot attach to this target.`
+  now read differently.
+
+### Added
+- `handle_dialog` is now documented (args, reply shape, the 2000 ms wait, and
+  the error when no dialog is showing).
+- `set_dialog_policy` (`auto-accept` | `manual`) switches native-dialog
+  handling at runtime, with no browser action required. The daemon's
+  `--no-auto-dialog` CLI flag selects `manual` at startup; `GET /status`
+  exposes the live policy as `dialog_policy`. Both Chrome/Edge and Firefox
+  editions default to `auto-accept`.
+- `GET /status` now also reports `extension_stale`,
+  `last_extension_frame_ms_ago`, `dialog_policy` and `last_notice`, and its
+  documentation makes clear it is connection-only (use `probe` for an activity
+  check).
+- `tools/blocking_range.py`: a self-contained stdlib range reproducing the
+  beforeunload / alert / confirm / prompt / download / slow / plain / popup /
+  form / big-page scenarios for regression testing.
+
+### Changed
+- Daemon round-trip timeout messages now carry diagnostics (dialog / debugger
+  session / extension worker) instead of only "extension did not reply".
+- Firefox: `browsingContext.userPromptOpened` is auto-accepted through
+  `browsingContext.handleUserPrompt`. Measured on Firefox 155: `alert` /
+  `confirm` / `prompt` accept cleanly; a `beforeunload` prompt does emit
+  `userPromptOpened` (with `type: "beforeunload"`) but is not answerable — the
+  accept is refused with `no such alert` and the navigation proceeds; the
+  failure is recorded in `probe` → `dialog.lastError`.
+
+Backward-compatible additions and fixes (PATCH bump, see
+`docs/VERSIONING.md`): existing response fields/shapes, endpoints and
+auth/origin behaviour are unchanged.
+
+Both Chrome/Edge (`extension/`) and Firefox companion (`ff/`) manifests bumped
+in sync.
+
 ## v1.2.0 — 2026-09-15
 
 ### Added

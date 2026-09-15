@@ -137,6 +137,17 @@ const CONFIG_FETCH_TIMEOUT_MS = 2500;
 const MAX_BACKOFF_MS = 30000;   // reconnect backoff cap (spec)
 const HEARTBEAT_MS = 15000;     // < 30 s MV3 idle limit
 const DEBUGGER_VERSION = '1.3'; // chrome.debugger protocol version
+// P2: a single chrome.debugger.sendCommand has no reply deadline in the
+// protocol, so while the page is blocked on a native dialog / credential
+// prompt it never settles. Every call is raced against this cap through
+// sendCdp(); it must stay well below the daemon's 120 s round-trip cap.
+const CDP_TIMEOUT_MS = 30000;
+const COLLECTOR_TIMEOUT_MS = 10000;   // attach-time domain enables (best-effort)
+// P1: native-dialog policy. 'auto-accept' (default) resolves every
+// Page.javascriptDialogOpening at the browser layer immediately; 'manual'
+// leaves it pending for the explicit handle_dialog action. The daemon sends
+// set_dialog_policy over the WS to keep this in sync with its own default.
+const DIALOG_POLICY_DEFAULT = 'auto-accept';
 const IS_EDGE = /Edg\//.test(navigator.userAgent || '');
 // The restricted-site names in the attach-failure footnote are runtime-
 // specific: Chrome users see chrome:// + the Chrome Web Store, Edge users
@@ -260,6 +271,27 @@ const suspendStateReady = (async () => {
 
 let debuggerTabId = null;       // tab owning the live chrome.debugger session
 
+// P1: current native-dialog policy ('auto-accept' | 'manual'). Read by the
+// Page.javascriptDialogOpening listener; updated by the set_dialog_policy
+// action / control message. Default matches the daemon's default.
+let dialogPolicy = DIALOG_POLICY_DEFAULT;
+// P5: top-frame URL of the current session when it is a browser error page
+// (chrome-error://chromewebdata/ — network failure, certificate interstitial,
+// cancelled auth). Set from Page.frameNavigated and from a Page.getFrameTree
+// probe on attach, reset on every (re)attach; lets evaluate report a clear
+// reason instead of returning meaningless values off an error page.
+let errorPage = null;
+// P1: last automatic dialog-accept failure ({type,message,error,at}) or null.
+// Exposed through probe (dialog.lastError) and mirrored to the daemon as an
+// unsolicited notice (GET /status last_notice + next /command response).
+let lastDialogAutoError = null;
+// P5: native-download + control-handoff feedback. `downloadRecords` is a
+// bounded newest-last ring served by list_downloads / probe; `lastDownload`
+// is the newest entry. A popup opened by the controlled tab pushes a notice.
+let downloadRecords = [];
+let lastDownload = null;
+let lastPopupNoticeAt = 0;
+
 // The browser ends our session on its own (tab closed, navigated somewhere
 // non-debuggable, DevTools took over, renderer gone, ...). Null the state so
 // the next evaluate attaches a fresh session instead of reusing a dead one.
@@ -271,6 +303,30 @@ chrome.debugger.onDetach.addListener((source, reason) => {
     pendingDialog = null;
     pendingFileChooser = null;
   }
+});
+
+// P5: a page that opens a popup (target=_blank / window.open) makes the new
+// tab ACTIVE, so the next active-tab action silently targets the new page
+// and the original chain breaks. Detect a tab opened by the controlled tab
+// and tell the daemon (additive notice), while tabs_list still lists every
+// tab exactly as before.
+chrome.tabs.onCreated.addListener((tab) => {
+  try {
+    if (!tab || tab.openerTabId == null) return;
+    if (tab.openerTabId !== debuggerTabId) return;
+    const now = Date.now();
+    if (now - lastPopupNoticeAt < 1500) return;   // collapse duplicate events
+    lastPopupNoticeAt = now;
+    const url = tab.url || tab.pendingUrl || 'about:blank';
+    notifyDaemon({
+      kind: 'control_moved',
+      text: 'the controlled page opened a new tab and focus moved to it ' +
+            '(tabId ' + tab.id + ': ' + url + '); target it explicitly with ' +
+            'tabId if the original page was intended',
+      tabId: tab.id,
+      url,
+    });
+  } catch (_) { /* a diagnostic notice must never break the listener */ }
 });
 
 // ---------------- humanize (P1, opt-in pacing) ----------------
@@ -421,6 +477,17 @@ function send(obj) {
   }
 }
 
+// P1/P5: unsolicited feedback that has no request id of its own (an auto
+// dialog-accept failure, a download started, control handed to a new tab).
+// Sent as a {"type":"notice"} frame; the daemon records it and surfaces it on
+// GET /status and on the next POST /command response.
+function notifyDaemon(fields) {
+  const payload = Object.assign({ type: 'notice', at: Date.now() }, fields || {});
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify(payload)); } catch (_) { /* best-effort */ }
+  }
+}
+
 function startHeartbeat() {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
@@ -490,6 +557,62 @@ function cleanupDebuggerSession() {
   if (tid != null) {
     chrome.debugger.detach({ tabId: tid }).catch(() => { /* noop */ });
   }
+}
+
+// P2: reset the managed session when a command timed out — a CDP call that
+// never settled means the session can no longer be trusted (blocked page or
+// dead target). Same recovery the transport-rejection paths use: null the
+// in-memory state so the next command attaches a fresh session, and detach
+// best-effort so the browser-side session does not linger.
+function resetDebuggerSessionIfCurrent(tabId) {
+  if (debuggerTabId === tabId) {
+    debuggerTabId = null;
+    chrome.debugger.detach({ tabId }).catch(() => { /* noop */ });
+  }
+}
+
+// P2: the ONLY place chrome.debugger.sendCommand is called. Races the command
+// against `timeoutMs` (default CDP_TIMEOUT_MS). On expiry it resets the
+// session and rejects with a self-explaining error, so a blocked page fails
+// in seconds instead of silently stalling until the daemon's 120 s cap.
+function sendCdp(tabId, method, params, timeoutMs) {
+  const limit = (Number.isFinite(timeoutMs) && timeoutMs > 0)
+    ? timeoutMs : CDP_TIMEOUT_MS;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = () => { settled = true; clearTimeout(timer); };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      finish();
+      resetDebuggerSessionIfCurrent(tabId);
+      const secs = Math.round(limit / 1000);
+      reject(new Error(
+        'CDP ' + method + ' did not respond within ' + secs + 's: the page ' +
+        'may be blocked by a native dialog or credential prompt (try ' +
+        'handle_dialog), or the debugger session is dead (retrying ' +
+        're-attaches)'));
+    }, limit);
+    let call;
+    try {
+      call = chrome.debugger.sendCommand({ tabId }, method, params || {});
+    } catch (err) {
+      finish();
+      reject(err);
+      return;
+    }
+    call.then(
+      (res) => {
+        if (settled) return;
+        finish();
+        resolve(res);
+      },
+      (err) => {
+        if (settled) return;
+        finish();
+        reject(err);
+      },
+    );
+  });
 }
 
 // Serialize attach/detach transitions so interleaved requests (the daemon may
@@ -573,11 +696,12 @@ function ringPush(arr, item) {
 async function enableCollectorDomains(tabId) {
   netEvents = [];
   consoleEvents = [];
+  errorPage = null;
   // Page.enable makes JS dialogs (alert/confirm/prompt/beforeunload) surface
   // as Page.javascriptDialogOpening events instead of Chrome auto-dismissing
   // them while a debugger is attached (see handleDialog below).
   for (const method of ['Network.enable', 'Runtime.enable', 'Page.enable']) {
-    try { await chrome.debugger.sendCommand({ tabId }, method); }
+    try { await sendCdp(tabId, method, undefined, COLLECTOR_TIMEOUT_MS); }
     catch (_) { /* collectors are best-effort */ }
   }
   // Intercept native file-chooser dialogs: any file input (or custom upload
@@ -585,9 +709,35 @@ async function enableCollectorDomains(tabId) {
   // showing the OS dialog (see handleFileChooser). Idempotent; re-sent on
   // every fresh attach.
   try {
-    await chrome.debugger.sendCommand({ tabId }, 'Page.setInterceptFileChooserDialog',
-                                      { enabled: true });
+    await sendCdp(tabId, 'Page.setInterceptFileChooserDialog',
+                  { enabled: true }, COLLECTOR_TIMEOUT_MS);
   } catch (_) { /* best-effort, same as the collectors */ }
+  // P5: keep the browser's normal download behaviour (do NOT redirect the
+  // destination) but ask for download events so an attachment navigation can
+  // be reported instead of silently doing nothing. Best-effort: older/newer
+  // protocol revisions may not answer this under a page-scoped session.
+  for (const method of ['Page.setDownloadBehavior', 'Browser.setDownloadBehavior']) {
+    try {
+      await sendCdp(tabId, method,
+                    { behavior: 'default', eventsEnabled: true },
+                    COLLECTOR_TIMEOUT_MS);
+      break;
+    } catch (_) { /* try the other domain, then give up */ }
+  }
+  // P5: the tab may already be sitting on a browser error page when we attach
+  // (navigate happened before this attach), so read the committed top frame
+  // once here; Page.frameNavigated keeps it current afterwards.
+  try {
+    const tree = await sendCdp(tabId, 'Page.getFrameTree', {}, COLLECTOR_TIMEOUT_MS);
+    const frame = (tree && tree.frameTree && tree.frameTree.frame) || {};
+    if (/^chrome-error:\/\//i.test(String(frame.url || ''))) {
+      errorPage = {
+        url: String(frame.url || ''),
+        unreachableUrl: String(frame.unreachableUrl || ''),
+        at: Date.now(),
+      };
+    }
+  } catch (_) { /* best-effort */ }
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -655,8 +805,56 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
         hasBrowserHandler: !!params.hasBrowserHandler,
         openedAt: Date.now(),
       };
+      // P1: default policy resolves the dialog at the browser layer right
+      // now (fire-and-forget); 'manual' leaves it for handle_dialog.
+      autoHandleDialog(source.tabId, pendingDialog);
     } else if (method === 'Page.javascriptDialogClosed') {
       pendingDialog = null;
+    } else if (method === 'Page.frameNavigated') {
+      // P5: track a top-frame commit so evaluate can tell an error page from a
+      // working one. A successful document clears the error state.
+      const frame = params.frame || {};
+      if (!frame.parentId) {
+        const fu = String(frame.url || '');
+        if (/^chrome-error:\/\//i.test(fu)) {
+          errorPage = {
+            url: fu,
+            unreachableUrl: String(frame.unreachableUrl || ''),
+            at: Date.now(),
+          };
+        } else if (fu && !/^about:blank$/i.test(fu)) {
+          errorPage = null;
+        }
+      }
+    } else if (method === 'Page.downloadWillBegin' || method === 'Browser.downloadWillBegin') {
+      // P5: an attachment navigation starts a download without changing the
+      // page. Record it (served by list_downloads / probe) and notify the
+      // daemon so the triggering command's response can say what happened.
+      const rec = {
+        guid: String(params.guid || ''),
+        url: typeof params.url === 'string' ? params.url : '',
+        suggestedFilename: typeof params.suggestedFilename === 'string'
+          ? params.suggestedFilename : '',
+        state: 'started',
+        at: Date.now(),
+      };
+      lastDownload = rec;
+      ringPush(downloadRecords, rec);
+      notifyDaemon({
+        kind: 'download_started',
+        text: 'download started: ' + (rec.suggestedFilename || '(unnamed)') +
+              (rec.url ? ' <- ' + rec.url : ''),
+        download: rec,
+      });
+    } else if (method === 'Page.downloadProgress' || method === 'Browser.downloadProgress') {
+      // Fold progress into the matching record (bounded ring, newest last).
+      const guid = String(params.guid || '');
+      const rec = downloadRecords.find((d) => d.guid === guid) || lastDownload;
+      if (rec && rec.guid === guid) {
+        if (typeof params.state === 'string') rec.state = params.state;
+        if (typeof params.receivedBytes === 'number') rec.receivedBytes = params.receivedBytes;
+        if (typeof params.totalBytes === 'number') rec.totalBytes = params.totalBytes;
+      }
     } else if (method === 'Page.fileChooserOpened') {
       // A file input / custom upload control was clicked and Chrome's native
       // dialog was intercepted (setInterceptFileChooserDialog on attach) — the
@@ -679,7 +877,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 // rethrow so the caller turns it into {ok:false, error}.
 async function runtimeEvaluate(tabId, expression) {
   try {
-    return await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+    return await sendCdp(tabId, 'Runtime.evaluate', {
       expression,
       returnByValue: true,   // send the completion value as JSON
       awaitPromise: true,    // await a Promise completion value
@@ -760,7 +958,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function handleMessage(ev) {
   let msg;
   try { msg = JSON.parse(ev.data); } catch (_) { return; }
-  if (!msg || typeof msg !== 'object' || !msg.id) return;   // ping etc.
+  if (!msg || typeof msg !== 'object') return;
+  // P1: daemon -> extension control frames carry no request id (no reply).
+  if (msg.type === 'set_dialog_policy') {
+    if (msg.policy === 'auto-accept' || msg.policy === 'manual') {
+      dialogPolicy = msg.policy;
+    }
+    return;
+  }
+  if (!msg.id) return;   // ping etc.
 
   try {
     if (msg.action === 'navigate') {
@@ -807,6 +1013,10 @@ async function handleMessage(ev) {
       await handleWaitFor(msg);
     } else if (msg.action === 'handle_dialog') {
       await handleDialog(msg);
+    } else if (msg.action === 'set_dialog_policy') {
+      handleSetDialogPolicy(msg);
+    } else if (msg.action === 'list_downloads') {
+      handleListDownloads(msg);
     } else if (msg.action === 'handle_file_chooser') {
       await handleFileChooser(msg);
     } else if (msg.action === 'drop') {
@@ -834,13 +1044,21 @@ async function handleMessage(ev) {
 // {ok:true, value} or {ok:false, error}; never throws.
 async function evaluateOnTab(tab, code) {
   const attachError = await ensureDebugger(tab.id);
-  if (attachError) return { ok: false, error: attachError };
+  if (attachError) {
+    return { ok: false, error: classifyPageFailure(tab, attachError) || attachError };
+  }
+
+  // P5: a committed browser error page is not a page to evaluate against —
+  // report the classified reason instead of returning the error page's values.
+  const pageProblem = classifyPageFailure(tab, '');
+  if (pageProblem) return { ok: false, error: pageProblem };
 
   let resp;
   try {
     resp = await runtimeEvaluate(tab.id, code);
   } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) };
+    const text = String((err && err.message) || err);
+    return { ok: false, error: classifyPageFailure(tab, text) || text };
   }
 
   if (resp.exceptionDetails) {
@@ -860,6 +1078,45 @@ async function evaluateOnTab(tab, code) {
     value = { type: result.type };
   }
   return { ok: true, value: jsonSafe(value) };
+}
+
+// P5: make the three very different "cannot act on this page" reasons look
+// different to a caller (protected page / failed-or-certificate-error page /
+// no debuggable target). Returns null when the error is unrelated (the
+// original message is then passed through untouched).
+function classifyPageFailure(tab, errorText) {
+  const url = (tab && tab.url) || '';
+  const err = String(errorText || '');
+  if (errorPage && /^chrome-error:\/\//i.test(errorPage.url || '')) {
+    const target = errorPage.unreachableUrl || url || 'unknown';
+    return 'page failed to load — network error, certificate error, or a ' +
+           'native authentication prompt that was cancelled (unreachable: ' +
+           target + '); the tab is showing the browser error page ' +
+           '(chrome-error://chromewebdata/); navigate to a working page and ' +
+           'retry';
+  }
+  if (/^(chrome|edge)-error:\/\//i.test(url)) {
+    return 'page failed to load — network error, certificate error, or a ' +
+           'native authentication prompt that was cancelled (browser error ' +
+           'page: ' + url + '); navigate to a working page and retry';
+  }
+  if (/^(chrome|edge):\/\//i.test(url) ||
+      /chromewebstore\.google\.com|microsoftedge\.microsoft\.com/i.test(url)) {
+    return 'protected page — the browser does not allow debugger access to ' +
+           url + '; open a normal http(s) page';
+  }
+  if (/cannot attach to this target/i.test(err)) {
+    return 'cannot attach to this target — it is either a protected page ' +
+           '(chrome:// / Web Store) or a failed / certificate-error page ' +
+           '(url: ' + (url || 'unknown') + ')';
+  }
+  if (/ERR_CERT|SSL|certificate/i.test(err)) {
+    return 'certificate error while loading the page: ' + err;
+  }
+  if (/net::ERR_/i.test(err)) {
+    return 'page failed to load (network error): ' + err;
+  }
+  return null;
 }
 
 async function handleEvaluate(msg) {
@@ -917,7 +1174,7 @@ async function handleCdp(msg) {
                   !Array.isArray(msg.params)) ? msg.params : {};
   let result;
   try {
-    result = await chrome.debugger.sendCommand({ tabId }, method, params);
+    result = await sendCdp(tabId, method, params);
   } catch (err) {
     // Transport-level rejection while we believed the session was live means
     // the session died — reset it (same logic runtimeEvaluate uses) so the
@@ -1550,8 +1807,7 @@ async function handleFill(msg) {
   }
   try {
     if (msg.humanize === true) await humanizeDelay(30, 120);  // P1 jitter
-    await chrome.debugger.sendCommand({ tabId }, 'Input.insertText',
-                                      { text: msg.value });
+    await sendCdp(tabId, 'Input.insertText', { text: msg.value });
   } catch (err) {
     send({ id: msg.id, ok: false,
            error: 'Input.insertText failed: ' + String((err && err.message) || err) });
@@ -1580,7 +1836,7 @@ async function cdpSend(tabId, method, params) {
   const attachError = await ensureDebugger(tabId);
   if (attachError) throw new Error(attachError);
   try {
-    return await chrome.debugger.sendCommand({ tabId }, method, params || {});
+    return await sendCdp(tabId, method, params);
   } catch (err) {
     if (debuggerTabId === tabId) {
       debuggerTabId = null;
@@ -1621,7 +1877,23 @@ async function handleNavigate(msg) {
     return;
   }
   const tabId = await targetTabId(msg);
+  let beforeUrl = '';
+  try { beforeUrl = (await chrome.tabs.get(tabId)).url || ''; } catch (_) { /* noop */ }
+  const downloadsBefore = downloadRecords.length;
   await chrome.tabs.update(tabId, { url });
+  // P5: an attachment URL starts a DOWNLOAD and never commits a new document.
+  // Give it a moment (bounded) so the Page.downloadWillBegin listener can
+  // record it and the response can say what happened. A normal document
+  // navigation commits a new tab url and ends this wait in tens of ms; only a
+  // download actually waits the full 1000 ms. The reply VALUE is unchanged
+  // ({"ok":true}); the feedback rides the additive top-level notice.
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline && downloadRecords.length === downloadsBefore) {
+    let tab;
+    try { tab = await chrome.tabs.get(tabId); } catch (_) { break; }
+    if (tab.url && tab.url !== beforeUrl) break;   // real navigation committed
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   send({ id: msg.id, ok: true });
 }
 
@@ -2204,6 +2476,46 @@ async function handleWaitFor(msg) {
   }
 }
 
+// P1: default native-dialog handling. Called from the
+// Page.javascriptDialogOpening listener; fire-and-forget. In 'auto-accept'
+// mode it resolves the dialog with Page.handleJavaScriptDialog {accept:true}
+// (beforeunload/alert/confirm/prompt alike) so the blocked page runs again
+// without an explicit handle_dialog. A failure is NOT swallowed: it is sent
+// to the daemon as an unsolicited notice (queryable via GET /status and
+// carried on the next /command response) and the dialog stays pending for a
+// manual handle_dialog retry.
+async function autoHandleDialog(tabId, dialog) {
+  if (dialogPolicy !== 'auto-accept') return;
+  try {
+    await sendCdp(tabId, 'Page.handleJavaScriptDialog', { accept: true });
+    // Resolved at the browser layer: keep the state machine consistent with
+    // the real browser (Page.javascriptDialogClosed will fire too).
+    if (pendingDialog && pendingDialog.openedAt === dialog.openedAt) {
+      pendingDialog = null;
+    }
+    lastDialogAutoError = null;
+  } catch (err) {
+    lastDialogAutoError = {
+      type: dialog.type,
+      message: dialog.message,
+      url: dialog.url,
+      error: String((err && err.message) || err),
+      at: Date.now(),
+    };
+    notifyDaemon({
+      kind: 'auto_dialog_failed',
+      text: 'auto-accept of a native ' + dialog.type + ' dialog failed: ' +
+            String((err && err.message) || err),
+      dialog: {
+        type: dialog.type,
+        message: dialog.message,
+        defaultPrompt: dialog.defaultPrompt,
+        url: dialog.url,
+      },
+    });
+  }
+}
+
 // "handle_dialog": accept/dismiss/answer the JavaScript dialog (alert/
 // confirm/prompt/beforeunload) currently showing on the target tab.
 //
@@ -2214,6 +2526,12 @@ async function handleWaitFor(msg) {
 // opens the dialog first — then resolves it via Page.handleJavaScriptDialog.
 // accept defaults true (OK); promptText answers a prompt(). If the page never
 // opened a dialog the wait times out with a clean {ok:false, error}.
+//
+// Since P1 the DEFAULT policy is auto-accept: the dialog is usually already
+// resolved by the time a caller runs this action (which then reports "no
+// JavaScript dialog is showing"). Set the policy to 'manual' (daemon
+// --no-auto-dialog or the set_dialog_policy action) to make this action the
+// only resolver again.
 async function handleDialog(msg) {
   const tabId = await targetTabId(msg);
   await chrome.tabs.get(tabId);
@@ -2243,7 +2561,7 @@ async function handleDialog(msg) {
   const params = { accept };
   if (promptText !== null) params.promptText = promptText;
   try {
-    await chrome.debugger.sendCommand({ tabId }, 'Page.handleJavaScriptDialog', params);
+    await sendCdp(tabId, 'Page.handleJavaScriptDialog', params);
   } catch (err) {
     send({ id: msg.id, ok: false,
            error: String((err && err.message) || err) });
@@ -2263,6 +2581,33 @@ async function handleDialog(msg) {
       promptText,
     },
   });
+}
+
+// "set_dialog_policy": switch native-dialog handling at runtime. No browser
+// action is needed (works even while a dialog is blocking the page), so this
+// is intentionally NOT routed through the debugger. The daemon owns the
+// default (--no-auto-dialog) and pushes the same value on connect.
+function handleSetDialogPolicy(msg) {
+  const policy = msg.policy;
+  if (policy !== 'auto-accept' && policy !== 'manual') {
+    send({ id: msg.id, ok: false,
+           error: "policy must be 'auto-accept' or 'manual'" });
+    return;
+  }
+  dialogPolicy = policy;
+  send({ id: msg.id, ok: true, value: { policy: dialogPolicy } });
+}
+
+// "list_downloads": newest-first record of downloads triggered by controlled
+// actions (P5). No browser action: reads the in-memory ring the
+// Page.downloadWillBegin listener fills, so it answers even while a page is
+// blocked. `limit` (positive integer) caps the list.
+async function handleListDownloads(msg) {
+  const limit = (Number.isInteger(msg.limit) && msg.limit > 0)
+    ? Math.min(msg.limit, downloadRecords.length) : downloadRecords.length;
+  const newestFirst = downloadRecords.slice().reverse().slice(0, limit);
+  send({ id: msg.id, ok: true,
+         value: { downloads: newestFirst, count: downloadRecords.length } });
 }
 
 // "handle_file_chooser": programmatically answer a native file chooser that
@@ -2301,7 +2646,7 @@ async function handleFileChooser(msg) {
     return;
   }
   try {
-    await chrome.debugger.sendCommand({ tabId }, 'DOM.setFileInputFiles', {
+    await sendCdp(tabId, 'DOM.setFileInputFiles', {
       files: [file],
       backendNodeId: chooser.backendNodeId,
     });
@@ -2448,7 +2793,15 @@ async function handleProbe(msg) {
   await probePath(paths, 'P7_chromeDebugger_evaluate',
     () => debuggerEvaluateResult(tab.id, code));
 
-  send({ id: msg.id, ok: true, value: { tab: tabInfo, paths } });
+  send({ id: msg.id, ok: true, value: {
+    tab: tabInfo,
+    paths,
+    // P1/P5 introspection: no debugger action needed (the probe's own P7 path
+    // is what blocks while a native dialog is pending).
+    dialog: { policy: dialogPolicy, pending: pendingDialog || null,
+              lastError: lastDialogAutoError },
+    downloads: { count: downloadRecords.length, last: lastDownload },
+  } });
 }
 
 // Run one probe path and record {ok:true, value} or {ok:false, error}; never

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Webflow Bridge Command API
-  version: 1.2.0
+  version: 1.2.1
   description: >-
     Local browser-automation bridge — protocol-compatible agent-tool surface for browser bridges
     replacement driven over plain HTTP (zero SDK, any HTTP client works).
@@ -23,6 +23,9 @@ paths:
         Every response — including 401/403/503/404 — additionally carries a
         top-level "browser" field naming which browser the connected
         extension runs in ("chrome" | "edge" | "" when none is connected).
+        A response may also carry an additive top-level "notice" object with
+        unsolicited feedback (auto dialog-accept failure, download started,
+        control moved to a new tab).
         Args are free-form (see schemas.Args); no bespoke SDK — this
         description alone lets curl, n8n, fetch or any generic HTTP client
         drive the bridge.
@@ -69,6 +72,7 @@ paths:
             http://127.0.0.1:10086 / http://localhost:10086 ("null" sandbox/file
             origins are deliberately rejected). Plain scripts/curl send no
             Origin header and never hit this after authenticating.
+          content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Http403'
@@ -148,6 +152,12 @@ components:
         - mouse_click
         - send_key
         - type_text
+        - handle_dialog
+        - set_dialog_policy
+        - list_downloads
+        - submit
+        - fill_form
+        - wait_for
     Args:
       type: object
       additionalProperties: true
@@ -206,6 +216,21 @@ components:
         type_text          text (string, required) inserted at the caret via
                            CDP Input.insertText; selector (string, optional)
                            CSS or "@eN" focused first; tabId (int, optional).
+        handle_dialog      accept (boolean, optional, default true) OK vs
+                           Cancel/leave; promptText (string, optional) answer
+                           to a prompt(); timeoutMs (integer 1..15000,
+                           optional, default 2000) max wait for the dialog to
+                           open; tabId (int, optional). With the default
+                           auto-accept policy the dialog is usually already
+                           resolved, so this answers "no JavaScript dialog is
+                           showing within <n>ms".
+        set_dialog_policy  policy (string, required) "auto-accept" | "manual"
+                           — switch native-dialog handling at runtime (works
+                           while a dialog blocks the page; no browser
+                           action). Mirrored in GET /status dialog_policy.
+        list_downloads     limit (integer, optional, positive) caps the
+                           newest-first native-download record. No browser
+                           action.
         probe              no args — returns the extension per-path diagnostic
                            matrix.
         tabs_list          no args — returns one entry per open tab.
@@ -269,11 +294,17 @@ components:
                 error}; tabs_list an array of tabs; tabs_open {"id","url"};
                 tabs_close {"closed":<tabId>}; tabs_close_all_but
                 {"closed":<count>}; tabs_activate {"tabId","active":true};
-                probe {tab, paths}; screenshot {base64, mime, width, height};
+                probe {tab, paths, dialog:{policy, pending, lastError},
+                downloads:{count, last}};
+                screenshot {base64, mime, width, height};
                 upload {success, file, tag}; save_as_pdf {base64,
                 mime:"application/pdf"}; mouse_click {success, x, y};
-                send_key {success, key}; type_text {success, len}; navigate {}
-                (or {success, tabId, groupId?} when args.newTab is true).
+                send_key {success, key}; type_text {success, len};
+                handle_dialog {success, dialog:{type, message,
+                defaultPrompt}, accept, promptText}; set_dialog_policy
+                {policy, extension_notified}; list_downloads {downloads,
+                count}; navigate {} (or {success, tabId, groupId?} when
+                args.newTab is true).
       required:
         - status
         - data
@@ -327,7 +358,13 @@ components:
         /command response and returned in GET /status data.
     ConnectionStatus:
       type: object
-      description: Connection snapshot returned by GET /status.
+      description: >-
+        Connection snapshot returned by GET /status. Deliberately connection +
+        settings only, and always fast: it never triggers a browser action, so
+        it cannot prove the debugger can act on the current page (native
+        dialogs are handled by the dialog_policy setting; for an activity
+        check use the probe action, which fails with a self-explaining error
+        while a dialog is blocking a page).
       properties:
         extension_connected:
           type: boolean
@@ -344,6 +381,34 @@ components:
           description: >-
             Local-timezone ISO 8601 timestamp of when the current connection
             was established; null when none is connected.
+        extension_stale:
+          type: boolean
+          description: >-
+            True when the extension's own JS heartbeat has gone quiet (MV3
+            service worker suspended). Describes the extension JS, not the
+            debugger session.
+        last_extension_frame_ms_ago:
+          type: integer
+          nullable: true
+          description: >-
+            Milliseconds since the last application-level frame from the
+            extension; null when nothing is connected.
+        dialog_policy:
+          type: string
+          enum: [auto-accept, manual]
+          description: >-
+            Live native-dialog policy. auto-accept (default) resolves every
+            alert/confirm/prompt/beforeunload immediately; manual leaves it
+            for handle_dialog.
+        last_notice:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: >-
+            Newest unsolicited extension notice ({kind, text, at, ...}) — an
+            auto dialog-accept failure, a download started, or control moved
+            to a new tab. The same object is attached to the next POST
+            /command response as a top-level notice.
       required:
         - extension_connected
         - browser
