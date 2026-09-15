@@ -294,6 +294,32 @@ function renderRows(rows) {
   }
 }
 
+// 失败原因放清单首行：daemon 没运行 / daemon 在跑但连接不可用（被占用或
+// 目标浏览器未就绪）。只有「点主卡主动连线」失败才传 reason，2s 轮询不传。
+const REASON_KEYS = { daemon_down: 'reason_daemon_down', daemon_busy: 'reason_daemon_busy' };
+
+function addReasonRow(reason) {
+  const key = REASON_KEYS[reason];
+  if (!key) return;
+  const li = document.createElement('li');
+  li.className = 'wiz-row';
+  li.dataset.state = 'bad';
+  const line = document.createElement('div');
+  line.className = 'wiz-line';
+  const icon = document.createElement('span');
+  icon.className = 'wiz-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = rowIcon('bad');
+  const label = document.createElement('span');
+  label.className = 'wiz-name';
+  label.textContent = T(key);
+  line.appendChild(icon);
+  line.appendChild(label);
+  li.appendChild(line);
+  const list = $('wizRows');
+  list.insertBefore(li, list.firstChild);   // 首行
+}
+
 function showWizard() { $('wizard').hidden = false; }
 function hideWizard() { $('wizard').hidden = true; }
 
@@ -466,7 +492,7 @@ function updateActBtn() {
 // `evHint`（可选）：Active 点击刚失败的 evaluate 结果 —— 复用为 page 行结论，
 // 避免重复 evaluate；daemon/Firefox 层错误仍由本次 probe 重新判定。
 
-async function runDiagnosis(evHint) {
+async function runDiagnosis(evHint, reason) {
   showWizard();
   const list = $('wizRows');
   list.textContent = '';
@@ -490,6 +516,7 @@ async function runDiagnosis(evHint) {
       ext: { state: 'pending', note: note },
       page: { state: 'pending', note: note },
     });
+    addReasonRow(reason);
     return;
   }
 
@@ -503,6 +530,7 @@ async function runDiagnosis(evHint) {
       ext: { state: 'pending', note: note },
       page: { state: 'pending', note: note },
     });
+    addReasonRow(reason);
     return;
   }
   if (probe.http === 403) {
@@ -525,6 +553,7 @@ async function runDiagnosis(evHint) {
       ext: { state: 'ok' },
       page: { state: 'bad', fix: pageFix({ http: 503, error: T('err_503') }) },
     });
+    addReasonRow(reason);
     return;
   }
   if (!probe.ok) {
@@ -560,8 +589,43 @@ async function runDiagnosis(evHint) {
   });
 }
 
-// 主卡点击：Inactive（红底）→ 打开激活清单并诊断；Active（绿底）→ 真实 evaluate
-// 验证通道（成功显示友好绿卡，不回显 document.title；失败落入激活清单对应行）。
+// Inactive 主卡点击 = 「点一下就连线」：先连 daemon / 建立 BiDi 会话（约 3 秒
+// 轮询），成功则主卡转 active；失败才打开清单，并把原因放首行。
+async function tryDialActivate() {
+  actBusy = true;
+  setActBtn('checking');
+  try {
+    const deadline = Date.now() + 3000;
+    do {
+      const tk = await fetchConfig();
+      if (tk) {
+        token = tk;
+        const p = await postCommand('probe', {});
+        if (p.net) {
+          daemonUp = false; bridgeInfo = null; bridgeErr = '';
+        } else {
+          daemonUp = true;
+          if (p.ok && p.data && p.data.connected === true) {
+            bridgeInfo = p.data; bridgeErr = '';
+            setActBtn('active');
+            return '';
+          }
+          bridgeInfo = null; bridgeErr = p.error || '';
+        }
+      } else {
+        daemonUp = false; bridgeInfo = null; bridgeErr = '';
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    } while (Date.now() < deadline);
+    return daemonUp ? 'daemon_busy' : 'daemon_down';
+  } finally {
+    actBusy = false;
+  }
+}
+
+// 主卡点击：Inactive（红底）→ 先尝试连线，失败才打开激活清单并诊断；
+// Active（绿底）→ 真实 evaluate 验证通道（成功显示友好绿卡，不回显 document.title；
+// 失败落入激活清单对应行）。
 async function activateBtn() {
   hideGuide();
   hideWizard();
@@ -569,7 +633,9 @@ async function activateBtn() {
   $('result').hidden = true;
 
   if (actState === 'inactive') {
-    await runDiagnosis();
+    const reason = await tryDialActivate();
+    if (actState === 'active') return;
+    await runDiagnosis(null, reason);
     return;
   }
 

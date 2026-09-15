@@ -23,6 +23,8 @@
 'en': {
   checking: 'Checking…',
   inactive: 'Inactive',
+  reason_daemon_down: 'The daemon is not running',
+  reason_daemon_busy: 'The daemon is already in use by another browser',
   active: 'Active',
   disconnected: 'Disconnected',
   disconnect: 'Disconnect',
@@ -54,6 +56,8 @@
 'zh-CN': {
   checking: '检测中…',
   inactive: '未激活',
+  reason_daemon_down: 'daemon 没运行',
+  reason_daemon_busy: 'daemon 已被另一个浏览器占用',
   active: '已激活',
   disconnected: '已断开',
   disconnect: '断开连接',
@@ -85,6 +89,8 @@
 'zh-TW': {
   checking: '檢查中…',
   inactive: '未啟用',
+  reason_daemon_down: 'daemon 未執行',
+  reason_daemon_busy: 'daemon 已被另一個瀏覽器占用',
   active: '已啟用',
   disconnected: '已中斷',
   disconnect: '中斷連線',
@@ -116,6 +122,8 @@
 'ja': {
   checking: '確認中…',
   inactive: '未アクティブ',
+  reason_daemon_down: 'daemon が起動していません',
+  reason_daemon_busy: 'daemon は別のブラウザーが使用中です',
   active: 'アクティブ',
   disconnected: '切断済み',
   disconnect: '切断',
@@ -147,6 +155,8 @@
 'ko': {
   checking: '확인 중…',
   inactive: '비활성',
+  reason_daemon_down: 'daemon이 실행되고 있지 않습니다',
+  reason_daemon_busy: 'daemon은 다른 브라우저에서 사용 중입니다',
   active: '활성',
   disconnected: '연결 끊김',
   disconnect: '연결 끊기',
@@ -178,6 +188,8 @@
 'fr': {
   checking: 'Vérification…',
   inactive: 'Inactif',
+  reason_daemon_down: 'Le daemon n’est pas démarré',
+  reason_daemon_busy: 'Le daemon est déjà utilisé par un autre navigateur',
   active: 'Actif',
   disconnected: 'Déconnecté',
   disconnect: 'Déconnecter',
@@ -209,6 +221,8 @@
 'de': {
   checking: 'Prüfe…',
   inactive: 'Inaktiv',
+  reason_daemon_down: 'Der Daemon läuft nicht',
+  reason_daemon_busy: 'Der Daemon wird bereits von einem anderen Browser verwendet',
   active: 'Aktiv',
   disconnected: 'Getrennt',
   disconnect: 'Trennen',
@@ -240,6 +254,8 @@
 'es': {
   checking: 'Comprobando…',
   inactive: 'Inactivo',
+  reason_daemon_down: 'El daemon no está en ejecución',
+  reason_daemon_busy: 'Otro navegador ya está usando el daemon',
   active: 'Activo',
   disconnected: 'Desconectado',
   disconnect: 'Desconectar',
@@ -271,6 +287,8 @@
 'pt': {
   checking: 'Verificando…',
   inactive: 'Inativo',
+  reason_daemon_down: 'O daemon não está em execução',
+  reason_daemon_busy: 'O daemon já está em uso por outro navegador',
   active: 'Ativo',
   disconnected: 'Desconectado',
   disconnect: 'Desconectar',
@@ -302,6 +320,8 @@
 'ru': {
   checking: 'Проверка…',
   inactive: 'Неактивен',
+  reason_daemon_down: 'Служба daemon не запущена',
+  reason_daemon_busy: 'daemon уже используется другим браузером',
   active: 'Активен',
   disconnected: 'Отключено',
   disconnect: 'Отключить',
@@ -333,6 +353,8 @@
 'ar': {
   checking: 'جارٍ التحقق…',
   inactive: 'غير نشط',
+  reason_daemon_down: 'الـ daemon لا يعمل',
+  reason_daemon_busy: 'الـ daemon قيد الاستخدام من متصفح آخر',
   active: 'نشط',
   disconnected: 'غير متصل',
   disconnect: 'قطع الاتصال',
@@ -364,6 +386,8 @@
 'it': {
   checking: 'Verifica…',
   inactive: 'Inattivo',
+  reason_daemon_down: 'Il daemon non è in esecuzione',
+  reason_daemon_busy: 'Il daemon è già in uso da un altro browser',
   active: 'Attivo',
   disconnected: 'Disconnesso',
   disconnect: 'Disconnetti',

@@ -135,6 +135,10 @@ const TOKEN_STORE_KEY = 'wbf_token';                  // chrome.storage.local ke
 const SUSPEND_STORE_KEY = 'wbfSuspended';             // persisted popup Disconnect flag
 const CONFIG_FETCH_TIMEOUT_MS = 2500;
 const MAX_BACKOFF_MS = 30000;   // reconnect backoff cap (spec)
+// wf-dial-now waits at most this long for the local WS handshake before it
+// answers the popup. The handshake is loopback-only, so a live daemon opens
+// it in a few ms; the cap only bounds the daemon-down failure path.
+const DIAL_WAIT_MS = 1500;
 const HEARTBEAT_MS = 15000;     // < 30 s MV3 idle limit
 const DEBUGGER_VERSION = '1.3'; // chrome.debugger protocol version
 // P2: a single chrome.debugger.sendCommand has no reply deadline in the
@@ -162,6 +166,7 @@ const DEFAULT_PROBE_CODE =
 let ws = null;
 let backoff = 1000;             // 1s -> 2s -> 4s -> ... -> 30s
 let reconnectTimer = null;
+let connectInFlight = false;    // dedupe concurrent connect() calls (reconnect + dial)
 let heartbeatTimer = null;
 let suspended = false;          // popup Disconnect: socket + auto-reconnect paused
 let suspendStateEpoch = 0;      // bumped on every local suspend/resume decision
@@ -434,44 +439,89 @@ function invalidateWsToken() {
 }
 
 async function connect() {
-  await suspendStateReady;                   // never dial before the pause flag is known
-  if (suspended) return;                     // user paused the link
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  const token = await ensureWsToken();
-  if (suspended) return;                     // paused while the token was fetched
-  if (token === null && !wbfTokenLegacy) {
-    // Daemon not up yet: keep the existing silent backoff loop.
-    ws = null;
-    scheduleReconnect();
-    return;
-  }
-  const url = wbfTokenLegacy
-    ? WS_URL
-    : WS_URL + '?token=' + encodeURIComponent(token);
-  wsEverOpened = false;
+  if (connectInFlight) return;               // one dial at a time (reconnect + wf-dial-now race)
+  connectInFlight = true;
   try {
-    ws = new WebSocket(url);
-  } catch (err) {
-    scheduleReconnect();
-    return;
+    await suspendStateReady;                 // never dial before the pause flag is known
+    if (suspended) return;                   // user paused the link
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    const token = await ensureWsToken();
+    if (suspended) return;                   // paused while the token was fetched
+    if (token === null && !wbfTokenLegacy) {
+      // Daemon not up yet: keep the existing silent backoff loop.
+      ws = null;
+      scheduleReconnect();
+      return;
+    }
+    const url = wbfTokenLegacy
+      ? WS_URL
+      : WS_URL + '?token=' + encodeURIComponent(token);
+    wsEverOpened = false;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      scheduleReconnect();
+      return;
+    }
+    ws.onopen = () => {
+      backoff = 1000;
+      wsEverOpened = true;
+      startHeartbeat();
+      console.log('[web-flow] connected to daemon', url);
+    };
+    ws.onmessage = (ev) => { handleMessage(ev); };
+    ws.onclose = () => {
+      console.warn('[web-flow] daemon connection closed; retrying');
+      stopHeartbeat();
+      if (!wsEverOpened) invalidateWsToken();  // 403 / refused: token may be stale
+      ws = null;
+      scheduleReconnect();
+      cleanupDebuggerSession();   // nothing to serve while the daemon is gone
+    };
+    ws.onerror = () => {                       // onerror is followed by onclose
+      try { ws.close(); } catch (_) { /* noop */ }
+    };
+  } finally {
+    connectInFlight = false;
   }
-  ws.onopen = () => {
-    backoff = 1000;
-    wsEverOpened = true;
-    startHeartbeat();
-    console.log('[web-flow] connected to daemon', url);
-  };
-  ws.onmessage = (ev) => { handleMessage(ev); };
-  ws.onclose = () => {
-    console.warn('[web-flow] daemon connection closed; retrying');
-    stopHeartbeat();
-    if (!wsEverOpened) invalidateWsToken();  // 403 / refused: token may be stale
-    ws = null;
-    scheduleReconnect();
-    cleanupDebuggerSession();   // nothing to serve while the daemon is gone
-  };
-  ws.onerror = () => {                       // onerror is followed by onclose
-    try { ws.close(); } catch (_) { /* noop */ }
+}
+
+// Resolve true as soon as the current socket reaches OPEN, false after `ms`.
+function waitForWsOpen(ms) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    (function tick() {
+      if (ws && ws.readyState === WebSocket.OPEN) { resolve(true); return; }
+      if (Date.now() - t0 >= ms) { resolve(false); return; }
+      setTimeout(tick, 50);
+    })();
+  });
+}
+
+// Popup click on an Inactive card: drop any pending backoff and dial NOW.
+// Returns
+//   {ok:true,  state:'connected'}
+// | {ok:false, state:'suspended'|'disconnected', reason}
+// reason distinguishes an unreachable daemon ('daemon_down': no /config on
+// :10086, no :10087 listener) from a live daemon whose handshake we could not
+// complete ('daemon_busy': stale token / slot held by another browser).
+async function dialNow() {
+  await suspendStateReady;
+  if (suspended) return { ok: false, state: 'suspended', reason: 'suspended' };
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  backoff = 1000;
+  if (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING)) {
+    connect();                                 // fire-and-wait; connect() dedupes
+  }
+  if (await waitForWsOpen(DIAL_WAIT_MS)) return { ok: true, state: 'connected' };
+  // Not open: a reachable /config means the daemon is up, so the failed dial
+  // is a handshake/slot problem rather than a missing daemon.
+  const token = await fetchDaemonToken();
+  if (ws && ws.readyState === WebSocket.OPEN) return { ok: true, state: 'connected' };
+  return {
+    ok: false,
+    state: 'disconnected',
+    reason: token === null ? 'daemon_down' : 'daemon_busy',
   };
 }
 
@@ -1120,6 +1170,10 @@ async function runtimeEvaluate(tabId, expression) {
 //         UI shows Disconnected even if the daemon itself is reachable)
 //   {type: "wf-disconnect"}        -> {ok:true, suspended:true}  (close + pause)
 //   {type: "wf-reconnect"}         -> {ok:true, suspended:false} (resume now)
+//   {type: "wf-dial-now"}          -> {ok, state, reason?}
+//        (cancel the backoff timer and dial this instant; reason is
+//         'daemon_down' when no daemon answers, 'daemon_busy' when the daemon
+//         is up but the handshake is refused / the slot is held)
 //   {type: "wf-evaluate", code}    -> {ok:true, value} | {ok:false, error}
 //        (active tab; routed through the SHARED debugger session helpers
 //         below — ensureDebugger + runtimeEvaluate — never re-implemented)
@@ -1147,6 +1201,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'wf-reconnect') {
     resumeConnection().then(() => sendResponse({ ok: true, suspended: false }));
     return true;        // reply after the durable write
+  }
+
+  if (msg.type === 'wf-dial-now') {
+    dialNow().then((out) => sendResponse(out));
+    return true;        // reply after the dial attempt settles
   }
 
   if (msg.type === 'wf-evaluate') {

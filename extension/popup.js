@@ -297,6 +297,32 @@
 
   function clearRows() { wizRowsEl.textContent = ''; }
 
+  // Failure reason for the checklist's FIRST line. Only a click-triggered dial
+  // that failed passes a reason; the background distinguishes an unreachable
+  // daemon from a live-but-occupied one. The 2 s poll never passes one.
+  const REASON_KEYS = { daemon_down: 'reason_daemon_down', daemon_busy: 'reason_daemon_busy' };
+
+  function addReasonRow(reason) {
+    const key = REASON_KEYS[reason];
+    if (!key) return;
+    const li = document.createElement('li');
+    li.className = 'wiz-row';
+    li.dataset.state = 'bad';
+    const line = document.createElement('div');
+    line.className = 'wiz-line';
+    const icon = document.createElement('span');
+    icon.className = 'wiz-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = rowIcon('bad');
+    const label = document.createElement('span');
+    label.className = 'wiz-name';
+    label.textContent = T(key);
+    line.appendChild(icon);
+    line.appendChild(label);
+    li.appendChild(line);
+    wizRowsEl.insertBefore(li, wizRowsEl.firstChild);   // first line
+  }
+
   // Render only the rows the caller actually supplies: the page row is
   // omitted in every normal state and added only for a drive failure.
   function renderRows(rows) {
@@ -410,10 +436,10 @@
 
   // Manual-op guard: while a diagnosis (or the click that triggers one) runs,
   // the poll timer skips its round so the two never interleave.
-  async function diagnose(pageErrHint) {
+  async function diagnose(pageErrHint, reason) {
     busy++;
     try {
-      return await diagnoseRows(pageErrHint);
+      return await diagnoseRows(pageErrHint, reason);
     } finally {
       busy--;
     }
@@ -422,7 +448,7 @@
   // One full diagnosis pass for the checklist. `pageErrHint` (optional) is a
   // fresh wf-evaluate error from the Active click — reuse it for the page row
   // instead of probing twice.
-  async function diagnoseRows(pageErrHint) {
+  async function diagnoseRows(pageErrHint, reason) {
     showWizard();
     clearRows();
     // Two-row checklist by default — the page row is only born on a real
@@ -446,6 +472,7 @@
         daemon: { state: 'bad', fix: daemonFix() },
         ext: { state: 'ok' },
       });
+      addReasonRow(reason);
       return;
     }
 
@@ -477,6 +504,30 @@
     });
   }
 
+  // Inactive card click = "click to connect". If the user had paused the link,
+  // clear that first; then ask the background to dial the daemon right now and
+  // poll wf-ping (~3 s at the same 150 ms cadence Reconnect uses) so the card
+  // can go checking → active. Returns the failed dial's reason ('' on success).
+  async function tryDialActivate() {
+    if (suspended) {
+      const r = await send('wf-reconnect');
+      if (r && r.ok) suspended = false;
+    }
+    setActState('checking');   // probing: the card is briefly not clickable
+    const dial = await send('wf-dial-now');
+    for (let i = 0; i < 20; i++) {
+      const p = await send('wf-ping');
+      if (p && p.ok && p.daemon === 'connected') {
+        daemonConnected = true;
+        setActState('active');
+        return '';
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    await refreshPing();
+    return (dial && dial.reason) || '';
+  }
+
   async function onMainClick() {
     // checking = probing; disconnected = the Reconnect button is the only
     // entry back, so the card itself deliberately does nothing.
@@ -486,8 +537,10 @@
       hideResult();
       hideWizard();
       await refreshPing();      // live re-check — the daemon may have changed
-      if (state === 'inactive') { // not active yet → open the activation checklist
-        await diagnose();
+      if (state === 'inactive') { // not active yet → dial now, then explain a failure
+        const reason = await tryDialActivate();
+        if (state === 'active') return;
+        await diagnose(null, reason);
         return;
       }
       // Active: verify the channel end-to-end with one real evaluate.

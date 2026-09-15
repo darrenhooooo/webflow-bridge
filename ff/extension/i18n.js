@@ -20,6 +20,8 @@
 'en': {
   checking: 'Checking…',
   inactive: 'Inactive',
+  reason_daemon_down: 'The daemon is not running',
+  reason_daemon_busy: 'Daemon is running, but not connectable',
   active: 'Active',
   wizard_title: 'Activation checklist',
   copy: 'Copy',
@@ -104,6 +106,8 @@
 'zh-CN': {
   checking: '检测中…',
   inactive: '未激活',
+  reason_daemon_down: 'daemon 没运行',
+  reason_daemon_busy: 'daemon 在运行，但连接不可用',
   active: '已激活',
   wizard_title: '激活清单',
   copy: '复制',
@@ -188,6 +192,8 @@
 'zh-TW': {
   checking: '檢查中…',
   inactive: '未啟用',
+  reason_daemon_down: 'daemon 未執行',
+  reason_daemon_busy: 'daemon 在執行，但連線無法使用',
   active: '已啟用',
   wizard_title: '啟用清單',
   copy: '複製',
@@ -272,6 +278,8 @@
 'ja': {
   checking: '確認中…',
   inactive: '未アクティブ',
+  reason_daemon_down: 'daemon が起動していません',
+  reason_daemon_busy: 'daemon は実行中ですが接続できません',
   active: 'アクティブ',
   wizard_title: 'アクティブ化チェックリスト',
   copy: 'コピー',
@@ -356,6 +364,8 @@
 'ko': {
   checking: '확인 중…',
   inactive: '비활성',
+  reason_daemon_down: 'daemon이 실행되고 있지 않습니다',
+  reason_daemon_busy: 'daemon은 실행 중이지만 연결할 수 없습니다',
   active: '활성',
   wizard_title: '활성화 체크리스트',
   copy: '복사',
@@ -440,6 +450,8 @@
 'fr': {
   checking: 'Vérification…',
   inactive: 'Inactif',
+  reason_daemon_down: 'Le daemon n’est pas démarré',
+  reason_daemon_busy: 'Daemon actif, mais connexion indisponible',
   active: 'Actif',
   wizard_title: 'Checklist d’activation',
   copy: 'Copier',
@@ -524,6 +536,8 @@
 'de': {
   checking: 'Prüfe…',
   inactive: 'Inaktiv',
+  reason_daemon_down: 'Der Daemon läuft nicht',
+  reason_daemon_busy: 'Daemon läuft, aber keine Verbindung möglich',
   active: 'Aktiv',
   wizard_title: 'Aktivierungs-Checkliste',
   copy: 'Kopieren',
@@ -608,6 +622,8 @@
 'es': {
   checking: 'Comprobando…',
   inactive: 'Inactivo',
+  reason_daemon_down: 'El daemon no está en ejecución',
+  reason_daemon_busy: 'El daemon está activo, pero sin conexión',
   active: 'Activo',
   wizard_title: 'Lista de verificación de activación',
   copy: 'Copiar',
@@ -692,6 +708,8 @@
 'pt': {
   checking: 'Verificando…',
   inactive: 'Inativo',
+  reason_daemon_down: 'O daemon não está em execução',
+  reason_daemon_busy: 'Daemon em execução, mas sem conexão',
   active: 'Ativo',
   wizard_title: 'Lista de verificação de ativação',
   copy: 'Copiar',
@@ -776,6 +794,8 @@
 'ru': {
   checking: 'Проверка…',
   inactive: 'Неактивен',
+  reason_daemon_down: 'Служба daemon не запущена',
+  reason_daemon_busy: 'daemon запущен, но подключение недоступно',
   active: 'Активен',
   wizard_title: 'Чек-лист активации',
   copy: 'Копировать',
@@ -860,6 +880,8 @@
 'ar': {
   checking: 'جارٍ التحقق…',
   inactive: 'غير نشط',
+  reason_daemon_down: 'الـ daemon لا يعمل',
+  reason_daemon_busy: 'الـ daemon يعمل لكن الاتصال غير متاح',
   active: 'نشط',
   wizard_title: 'قائمة التحقق من التفعيل',
   copy: 'نسخ',
@@ -944,6 +966,8 @@
 'it': {
   checking: 'Verifica…',
   inactive: 'Inattivo',
+  reason_daemon_down: 'Il daemon non è in esecuzione',
+  reason_daemon_busy: 'Daemon attivo, ma connessione non disponibile',
   active: 'Attivo',
   wizard_title: 'Checklist di attivazione',
   copy: 'Copia',
