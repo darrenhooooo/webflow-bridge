@@ -30,3 +30,66 @@ jobs:
         run: |
           git checkout -B main cnb/main
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/darrenhooooo/webflow-bridge.git" main --force
+
+      - name: Mirror CNB tags -> origin tags
+        run: |
+          # 用 --force 推 tag：GitHub 侧可能有 CNB 已删除或已改写的同名 tag，
+          # 只有 force 才能让远端 tag 与 CNB 完全一致，否则 push 会被拒绝。
+          git fetch cnb --tags --force
+          git push --force --tags "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Create GitHub Releases for new tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 单轮失败只记一次账并 continue，循环结束后统一以失败计数决定 job 成败
+          fail=0
+          for tag in $(git tag --list 'v[0-9]*' | sort -V); do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "release $tag 已存在，跳过"
+              continue
+            fi
+            # 切到该 tag 自己的源码树，保证构建出的附件与该版本一致
+            if ! git checkout --quiet --detach "$tag"; then
+              echo "检出 tag $tag 失败，跳过该 tag" >&2
+              fail=$((fail + 1))
+              continue
+            fi
+            # 正文优先取该 tag 的 CHANGELOG.md 中该版本的段落，取不到则退回 tag subject
+            notes=$(awk -v ver="$tag" '
+              $0 ~ "^## " ver "([[:space:]]|$)" {p=1; next}
+              p && /^## / {exit}
+              p {print}
+            ' CHANGELOG.md)
+            if [ -z "$notes" ]; then
+              notes=$(git tag -l --format='%(contents:subject)' "$tag")
+            fi
+            ver=${tag#v}
+            main_zip="dist/webflow-bridge-${ver}.zip"
+            firefox_zip="ff/extension/dist/webflow-bridge-firefox-${ver}.zip"
+            # 清掉上一轮遗留产物，避免不同版本的 zip 累积到同一个 Release
+            rm -rf dist ff/extension/dist
+            # 先构建 + 校验；全部通过之后才建 Release，避免留下没有附件的空 Release
+            if ! python3 tools/rebuild_zip.py || [ ! -f "$main_zip" ]; then
+              echo "主包构建或产物校验失败: $main_zip (tag $tag)，跳过该 tag" >&2
+              fail=$((fail + 1))
+              continue
+            fi
+            # Firefox 包按该 tag 是否带脚本决定；老 tag（如 v1.0.0）没有脚本，只发主包，不算失败
+            uploads=("$main_zip")
+            if [ -f ff/extension/rebuild_zip.py ]; then
+              if ! python3 ff/extension/rebuild_zip.py || [ ! -f "$firefox_zip" ]; then
+                echo "Firefox 包构建或产物校验失败: $firefox_zip (tag $tag)，跳过该 tag" >&2
+                fail=$((fail + 1))
+                continue
+              fi
+              uploads+=("$firefox_zip")
+            else
+              echo "tag $tag 无 ff/extension/rebuild_zip.py，只发布主包"
+            fi
+            # 校验全部通过后才创建 Release，然后上传实际存在的产物
+            gh release create "$tag" --title "Webflow Bridge $tag" --notes "$notes"
+            gh release upload "$tag" "${uploads[@]}" --clobber
+          done
+          [ "$fail" -eq 0 ] || exit 1
