@@ -11,7 +11,7 @@
   <a href="README.md"><img src="https://img.shields.io/badge/Lang-English-blue?style=for-the-badge" alt="English"></a>
 </p>
 
-**免费、本地的浏览器自动化桥 —— 驱动你真实、已登录的 Chrome 或 Edge。无云、无账号、不复制 cookie。**
+**把浏览器交给你的 AI：全在本机运行，数据不出本机**
 
 Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要额外维护的"第二个自动化浏览器"。你的脚本和 AI agent 向跑在本机的小型 daemon POST JSON 命令，daemon 去驱动**你已经打开的那个标签页** —— 你的会话、你的 cookie、你的登录态。一切都在本机，数据不出设备。
 

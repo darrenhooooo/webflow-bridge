@@ -1,10 +1,11 @@
 /* Webflow Bridge popup — self-contained i18n (Chrome / Edge version).
  *
- * 12 languages, auto-detected from navigator.language (browser.i18n.
+ * 16 languages, auto-detected from navigator.language (browser.i18n.
  * getUILanguage is used as a fallback where present). Matching: exact
  * region match wins (zh-HK -> Traditional), then a parent-language /
  * region mapping (zh without region -> Simplified, pt-BR/pt-PT -> pt,
- * en-US -> en), anything unknown -> English.
+ * en-US -> en, in -> id for legacy Indonesian), anything unknown ->
+ * English.
  *
  * Arabic switches the document to dir="rtl" (see [dir="rtl"] rules in
  * popup.css). No external resources; no chrome.i18n _locales needed.
@@ -414,6 +415,138 @@
   page_fix_restricted_edge: 'Le pagine edge://, lo store dei componenti aggiuntivi di Edge e le pagine di nuova scheda non possono essere pilotate.',
   page_fix_devtools: 'Un altro debugger — di solito DevTools (F12) — è collegato alla scheda attiva. Chiudilo: lo stato qui sopra si aggiorna automaticamente.',
   page_fix_generic: 'La scheda attiva non può essere pilotata al momento. Passa a una normale pagina http(s); se continua a fallire, chiudi DevTools (F12) sulla scheda, ricarica l’estensione con il comando qui sotto e riprova.'
+},
+
+'vi': {
+  checking: 'Đang kiểm tra…',
+  inactive: 'Chưa kích hoạt',
+  reason_daemon_down: 'daemon chưa chạy',
+  reason_daemon_busy: 'daemon đang được trình duyệt khác dùng',
+  active: 'Đã kích hoạt',
+  disconnected: 'Đã ngắt kết nối',
+  disconnect: 'Ngắt kết nối',
+  reconnect: 'Kết nối lại',
+  wizard_title: 'Danh sách kiểm tra kích hoạt',
+  copy: 'Sao chép',
+  copied: 'Đã sao chép ✓',
+  copy_failed: 'Sao chép thất bại',
+  unknown_error: 'lỗi không xác định',
+  no_bg_response: 'không có phản hồi từ tiến trình nền',
+  row_daemon: 'Daemon đang chạy',
+  row_ext: 'Tiện ích đã sẵn sàng',
+  row_page: 'Thẻ hiện tại có thể gỡ lỗi',
+  test_ok: 'Webflow Bridge đã sẵn sàng — tiện ích đang chạy trong {browser}.\nBước tiếp theo: gửi POST từ script hoặc AI agent của bạn tới http://127.0.0.1:10086/command để điều khiển thẻ này (giao thức: xem docs/HTTP_API.md trong kho mã nguồn)',
+  note_ext_down: 'Không kiểm tra được khi tiện ích đang tắt — hãy tải lại tiện ích ở trên.',
+  daemon_lead: 'Khởi động daemon cục bộ — chọn một trong hai cách:',
+  cmd_python: 'Python:',
+  cmd_uv: 'uv:',
+  project_link: 'Webflow Bridge trên GitHub',
+  ext_fix_1: 'Mở trang quản lý tiện ích của <b>{browser}</b> và bật <b>Chế độ nhà phát triển</b>.',
+  ext_fix_2: 'Tìm <b>Webflow Bridge</b> rồi bấm nút <b>Tải lại</b>.',
+  page_fix_switch: 'Chuyển trình duyệt sang một thẻ trang web bình thường — bất kỳ trang http:// hoặc https:// nào.',
+  page_fix_restricted: 'Không điều khiển được các trang chrome://, Chrome Web Store và trang thẻ mới.',
+  page_fix_restricted_edge: 'Không điều khiển được các trang edge://, cửa hàng tiện ích Edge và trang thẻ mới.',
+  page_fix_devtools: 'Một trình gỡ lỗi khác — thường là DevTools (F12) — đang gắn vào thẻ hiện tại. Hãy đóng nó; trạng thái ở trên sẽ tự cập nhật.',
+  page_fix_generic: 'Hiện chưa điều khiển được thẻ đang mở. Hãy chuyển sang một trang http(s) bình thường; nếu vẫn lỗi, đóng DevTools (F12) trên thẻ đó, rồi tải lại tiện ích bằng lệnh bên dưới và thử lại.'
+},
+
+'th': {
+  checking: 'กำลังตรวจสอบ…',
+  inactive: 'ยังไม่เปิดใช้งาน',
+  reason_daemon_down: 'daemon ยังไม่ทำงาน',
+  reason_daemon_busy: 'daemon ถูกเบราว์เซอร์อื่นใช้งานอยู่',
+  active: 'เปิดใช้งานแล้ว',
+  disconnected: 'ตัดการเชื่อมต่อแล้ว',
+  disconnect: 'ตัดการเชื่อมต่อ',
+  reconnect: 'เชื่อมต่อใหม่',
+  wizard_title: 'รายการตรวจสอบการเปิดใช้งาน',
+  copy: 'คัดลอก',
+  copied: 'คัดลอกแล้ว ✓',
+  copy_failed: 'คัดลอกไม่สำเร็จ',
+  unknown_error: 'ข้อผิดพลาดที่ไม่ทราบสาเหตุ',
+  no_bg_response: 'ไม่มีการตอบกลับจากโปรเซสเบื้องหลัง',
+  row_daemon: 'Daemon กำลังทำงาน',
+  row_ext: 'ส่วนขยายพร้อมใช้งาน',
+  row_page: 'แท็บปัจจุบันสามารถดีบักได้',
+  test_ok: 'Webflow Bridge พร้อมใช้งานแล้ว — ส่วนขยายกำลังทำงานใน {browser}\nขั้นตอนถัดไป: ส่ง POST จากสคริปต์หรือ AI agent ของคุณไปที่ http://127.0.0.1:10086/command เพื่อควบคุมแท็บนี้ (โปรโตคอล: ดู docs/HTTP_API.md ในรีโป)',
+  note_ext_down: 'ตรวจสอบไม่ได้ขณะส่วนขยายหยุดทำงาน — โหลดส่วนขยายใหม่ตามด้านบน',
+  daemon_lead: 'เริ่ม daemon ในเครื่อง — เลือกวิธีใดวิธีหนึ่ง:',
+  cmd_python: 'Python:',
+  cmd_uv: 'uv:',
+  project_link: 'Webflow Bridge บน GitHub',
+  ext_fix_1: 'เปิดหน้าจัดการส่วนขยายของ <b>{browser}</b> และตรวจสอบว่าเปิด <b>โหมดนักพัฒนา</b> แล้ว',
+  ext_fix_2: 'ค้นหา <b>Webflow Bridge</b> แล้วคลิกปุ่ม <b>โหลดใหม่</b>',
+  page_fix_switch: 'สลับไปที่แท็บเว็บเพจปกติ — เว็บ http:// หรือ https:// ใดก็ได้',
+  page_fix_restricted: 'หน้า chrome://, Chrome Web Store และหน้าแท็บใหม่ควบคุมไม่ได้',
+  page_fix_restricted_edge: 'หน้า edge://, ร้านส่วนเสริม Edge และหน้าแท็บใหม่ควบคุมไม่ได้',
+  page_fix_devtools: 'มีตัวดีบักอื่น — ปกติคือ DevTools (F12) — เชื่อมอยู่กับแท็บปัจจุบัน ปิดมันแล้วสถานะด้านบนจะอัปเดตอัตโนมัติ',
+  page_fix_generic: 'ตอนนี้ยังควบคุมแท็บที่เปิดอยู่ไม่ได้ สลับไปที่หน้า http(s) ปกติ ถ้ายังไม่สำเร็จ ให้ปิด DevTools (F12) บนแท็บนั้น แล้วโหลดส่วนขยายใหม่ด้วยคำสั่งด้านล่างแล้วลองอีกครั้ง'
+},
+
+'id': {
+  checking: 'Memeriksa…',
+  inactive: 'Belum aktif',
+  reason_daemon_down: 'daemon belum berjalan',
+  reason_daemon_busy: 'daemon sedang dipakai browser lain',
+  active: 'Aktif',
+  disconnected: 'Terputus',
+  disconnect: 'Putuskan',
+  reconnect: 'Sambungkan lagi',
+  wizard_title: 'Daftar periksa aktivasi',
+  copy: 'Salin',
+  copied: 'Tersalin ✓',
+  copy_failed: 'Gagal menyalin',
+  unknown_error: 'kesalahan tidak diketahui',
+  no_bg_response: 'tidak ada respons dari proses latar',
+  row_daemon: 'Daemon sedang berjalan',
+  row_ext: 'Ekstensi siap',
+  row_page: 'Tab saat ini dapat di-debug',
+  test_ok: 'Webflow Bridge siap — ekstensi berjalan di {browser}.\nLangkah berikutnya: kirim POST dari skrip atau AI agent Anda ke http://127.0.0.1:10086/command untuk mengendalikan tab ini (protokol: lihat docs/HTTP_API.md di repositori)',
+  note_ext_down: 'Tidak bisa memeriksa saat ekstensi mati — muat ulang ekstensi di atas.',
+  daemon_lead: 'Jalankan daemon lokal — pilih salah satu cara:',
+  cmd_python: 'Python:',
+  cmd_uv: 'uv:',
+  project_link: 'Webflow Bridge di GitHub',
+  ext_fix_1: 'Buka halaman ekstensi <b>{browser}</b> dan pastikan <b>Mode pengembang</b> aktif.',
+  ext_fix_2: 'Temukan <b>Webflow Bridge</b> lalu klik tombol <b>Muat ulang</b>.',
+  page_fix_switch: 'Pindah browser ke tab halaman web biasa — situs http:// atau https:// apa pun.',
+  page_fix_restricted: 'Halaman chrome://, Chrome Web Store, dan halaman tab baru tidak bisa dikendalikan.',
+  page_fix_restricted_edge: 'Halaman edge://, toko Add-on Edge, dan halaman tab baru tidak bisa dikendalikan.',
+  page_fix_devtools: 'Ada debugger lain — biasanya DevTools (F12) — yang terpasang di tab aktif. Tutup debugger itu; status di atas akan diperbarui otomatis.',
+  page_fix_generic: 'Tab aktif belum bisa dikendalikan saat ini. Pindah ke halaman http(s) biasa; jika masih gagal, tutup DevTools (F12) di tab tersebut, lalu muat ulang ekstensi dengan perintah di bawah dan coba lagi.'
+},
+
+'hi': {
+  checking: 'जाँच हो रही है…',
+  inactive: 'निष्क्रिय',
+  reason_daemon_down: 'daemon चल नहीं रहा',
+  reason_daemon_busy: 'daemon किसी दूसरे ब्राउज़र में उपयोग में है',
+  active: 'सक्रिय',
+  disconnected: 'डिस्कनेक्ट हो गया',
+  disconnect: 'डिस्कनेक्ट करें',
+  reconnect: 'फिर कनेक्ट करें',
+  wizard_title: 'सक्रिय करने की जाँच सूची',
+  copy: 'कॉपी करें',
+  copied: 'कॉपी हो गया ✓',
+  copy_failed: 'कॉपी नहीं हो सका',
+  unknown_error: 'अज्ञात त्रुटि',
+  no_bg_response: 'बैकग्राउंड से कोई जवाब नहीं',
+  row_daemon: 'Daemon चल रहा है',
+  row_ext: 'एक्सटेंशन तैयार है',
+  row_page: 'मौजूदा टैब डीबग किया जा सकता है',
+  test_ok: 'Webflow Bridge तैयार है — एक्सटेंशन {browser} में चल रहा है।\nअगला कदम: अपनी स्क्रिप्ट या AI agent से http://127.0.0.1:10086/command पर POST भेजें और इस टैब को चलाएँ (प्रोटोकॉल: रेपो की docs/HTTP_API.md देखें)',
+  note_ext_down: 'एक्सटेंशन बंद रहने पर जाँच नहीं हो सकती — ऊपर दिए तरीके से एक्सटेंशन फिर लोड करें।',
+  daemon_lead: 'लोकल daemon शुरू करें — दो में से कोई भी तरीका चुनें:',
+  cmd_python: 'Python:',
+  cmd_uv: 'uv:',
+  project_link: 'GitHub पर Webflow Bridge',
+  ext_fix_1: '<b>{browser}</b> का एक्सटेंशन पेज खोलें और देखें कि <b>डेवलपर मोड</b> चालू है।',
+  ext_fix_2: '<b>Webflow Bridge</b> ढूँढ़ें और उसका <b>फिर लोड करें</b> बटन दबाएँ।',
+  page_fix_switch: 'ब्राउज़र को किसी सामान्य वेबपेज टैब पर ले जाएँ — कोई भी http:// या https:// साइट।',
+  page_fix_restricted: 'chrome:// पेज, Chrome Web Store और नए टैब पेज नहीं चलाए जा सकते।',
+  page_fix_restricted_edge: 'edge:// पेज, Edge Add-ons स्टोर और नए टैब पेज नहीं चलाए जा सकते।',
+  page_fix_devtools: 'मौजूदा टैब से कोई दूसरा डीबगर — आम तौर पर DevTools (F12) — जुड़ा है। उसे बंद करें, ऊपर की स्थिति अपने आप अपडेट हो जाएगी।',
+  page_fix_generic: 'अभी मौजूदा टैब नहीं चलाया जा सकता। किसी सामान्य http(s) पेज पर जाएँ; फिर भी दिक्कत हो तो उस टैब पर DevTools (F12) बंद करें, नीचे दिए कमांड से एक्सटेंशन फिर लोड करें और दोबारा कोशिश करें।'
 }
 
   };
@@ -437,6 +570,7 @@
       return 'zh-CN';
     }
     var base = raw.split('-')[0];
+    if (base === 'in') base = 'id';        // legacy code for Indonesian
     return MESSAGES[base] ? base : 'en';   // pt-BR/pt-PT/pt -> 'pt' via base
   }
 

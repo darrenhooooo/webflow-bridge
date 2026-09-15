@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-web-flow daemon — local browser-automation bridge.
+web-flow daemon — local bridge that drives your browser.
 
 Two stdlib-only servers:
 

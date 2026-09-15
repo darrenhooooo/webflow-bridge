@@ -13,10 +13,10 @@ uploading.
 ## Summary (≤ 132 chars)
 
 ```
-Run JS and CDP commands on your active tab from a local daemon. Browser-automation bridge — 100% local, no cloud.
+Hand your browser to your AI: everything runs on your machine, and your data never leaves it.
 ```
 
-(108 chars — copy as-is.)
+(93 chars — copy as-is. Same copy for all 12 locales below.)
 
 ## Category suggestion
 
@@ -26,8 +26,9 @@ Run JS and CDP commands on your active tab from a local daemon. Browser-automati
 
 ## Full description (~120–250 words, Markdown allowed)
 
-> **What it is.** Webflow Bridge is a local browser-automation bridge. Your
-> scripts — or any local automation — post commands to
+> **What it is.** Hand your browser to your AI: everything runs on your
+> machine, and your data never leaves it. Your scripts — or any local
+> automation — post commands to
 > `http://127.0.0.1:10086`, and Webflow Bridge runs them in your
 > real Chrome tab. It attaches to the **active tab** via `chrome.debugger` and
 > executes through CDP `Runtime.evaluate` — the exact channel Chrome's DevTools
@@ -57,6 +58,29 @@ Run JS and CDP commands on your active tab from a local daemon. Browser-automati
 >
 > **Support / feedback.** File an issue at the GitHub repo above, or contact
 > <darren.hou@outlook.com>
+
+## Description — all 12 store locales
+
+Manifest `description` is resolved from `_locales/<locale>/messages.json`
+(`__MSG_extDescription__`, `default_locale: zh_CN`). The strings below are the
+same copy, ready to paste into the Chrome Web Store summary field or the AMO
+listing description — each is ≤ 132 characters. The `zh_CN` row is the
+original Chinese copy; the `en` row is the English baseline.
+
+| Locale | Extension (Chrome / Edge · CWS) | Firefox companion (AMO) |
+|---|---|---|
+| `zh_CN` 中文 | 把浏览器交给你的 AI：全在本机运行，数据不出本机 | Webflow Bridge Firefox 版的本机控制面板：状态、脚本、标签页管理；只连本机，不收集任何数据。 |
+| `zh_TW` 繁體中文 | 把瀏覽器交給你的 AI：全在本機執行，資料不出本機 | Webflow Bridge Firefox 版的本機控制面板：狀態、指令碼、分頁管理；只連本機，不收集任何資料。 |
+| `en` English | Hand your browser to your AI: everything runs on your machine, and your data never leaves it. | The local Webflow Bridge control panel for Firefox: status, scripts, tabs. Connects only to your machine, collects no data. |
+| `ja` 日本語 | ブラウザをあなたの AI に任せましょう。すべてお使いのマシンで動作し、データは外部に送信されません。 | Firefox 版 Webflow Bridge のローカル操作パネル。状態・スクリプト・タブを管理。接続先はこのマシンだけで、データは収集しません。 |
+| `ko` 한국어 | 브라우저를 당신의 AI에게 맡기세요. 모든 것은 이 기기에서 실행되고, 데이터는 외부로 나가지 않습니다. | Firefox용 Webflow Bridge 로컬 제어판. 상태·스크립트·탭을 관리합니다. 이 기기에만 연결하고 데이터는 수집하지 않습니다. |
+| `fr` Français | Confiez votre navigateur à votre IA : tout s'exécute sur votre machine, vos données ne sortent jamais. | Panneau de contrôle Webflow Bridge pour Firefox : état, scripts, onglets. Connexion locale uniquement, aucune donnée collectée. |
+| `de` Deutsch | Übergib deinen Browser deiner KI: Alles läuft auf deinem Rechner, deine Daten verlassen ihn nie. | Webflow Bridge-Kontrollpanel für Firefox: Status, Skripte, Tabs. Verbindet sich nur mit deinem Rechner, erfasst keine Daten. |
+| `es` Español | Dale tu navegador a tu IA: todo se ejecuta en tu equipo y tus datos no salen de él. | Panel de control local de Webflow Bridge para Firefox: estado, scripts, pestañas. Solo se conecta a tu equipo, no recopila datos. |
+| `pt` Português | Entregue seu navegador à sua IA: tudo roda na sua máquina e seus dados não saem dela. | Painel de controle local do Webflow Bridge para Firefox: status, scripts, abas. Conecta-se apenas à sua máquina, não coleta dados. |
+| `ru` Русский | Отдайте браузер своему ИИ: всё работает на вашем компьютере, данные никуда не уходят. | Панель управления Webflow Bridge для Firefox: статус, скрипты, вкладки. Работает только с вашим компьютером, данные не собирает. |
+| `ar` العربية | سلّم متصفحك إلى الذكاء الاصطناعي: كل شيء يعمل على جهازك، ولا تغادر بياناتك جهازك أبدًا. | لوحة التحكم المحلية لـ Webflow Bridge في Firefox: الحالة والنصوص البرمجية والتبويبات. تتصل بجهازك فقط ولا تجمع بيانات. |
+| `it` Italiano | Affida il browser alla tua IA: tutto viene eseguito sul tuo computer e i tuoi dati non escono mai. | Pannello di controllo di Webflow Bridge per Firefox: stato, script, schede. Si connette solo al tuo computer, non raccoglie dati. |
 
 ## Sensitive-permission justifications (paste into the review form)
 

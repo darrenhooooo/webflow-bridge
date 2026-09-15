@@ -11,7 +11,7 @@
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
 </p>
 
-**A free, local browser-automation bridge that drives YOUR real, already-logged-in Chrome or Edge. No cloud, no accounts, no copied cookies.**
+**Hand your browser to your AI: everything runs on your machine, and your data never leaves it.**
 
 Webflow Bridge is not a cloud browser service, not a cookie jar, and not a second "automation browser" to keep in sync. Your scripts and AI agents POST JSON commands to a small daemon running on your machine, and the daemon drives the very tab you already have open — your session, your cookies, your logins. Everything stays local; nothing ever leaves your device.
 

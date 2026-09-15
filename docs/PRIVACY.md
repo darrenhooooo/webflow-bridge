@@ -1,7 +1,7 @@
 # Webflow Bridge Privacy Policy
 
-**Short version: everything stays on your computer.** Webflow Bridge is a
-local browser-automation bridge. It never sends data anywhere else.
+**Short version: everything stays on your computer.** Webflow Bridge runs
+entirely on your machine. It never sends data anywhere else.
 
 Webflow Bridge has two parts, both of which you run on your own machine:
 
