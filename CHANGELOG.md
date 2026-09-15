@@ -10,6 +10,16 @@
   state without triggering any browser action: `extension_connected`, `browser`,
   `ws_port`, `connected_since`.
 
+### Fixed
+- A reconnecting extension no longer deadlocks the bridge: a new WebSocket
+  connection now takes over the slot immediately and the stale connection is
+  kicked, along with any command already handed to it (previously the daemon
+  stopped accepting new connections and had to be restarted).
+- An extension socket that is dead but still TCP-open is now detected and
+  dropped: liveness is judged by the extension's application-level heartbeat
+  (its `{"type":"ping"}` frames), so in-flight commands fail fast (503)
+  instead of waiting out the 120 s round-trip timeout.
+
 Backward-compatible additions (MINOR bump, see docs/VERSIONING.md): existing
 response fields/shapes, endpoints and auth/origin behaviour are unchanged.
 

@@ -159,9 +159,36 @@ WS_PORT = 10087
 ALLOWED_ORIGINS = {"http://127.0.0.1:10086", "http://localhost:10086"}
 
 EVAL_TIMEOUT = 120          # seconds an HTTP caller waits for the extension
+                            # (fallback only: the connection liveness watchdog
+                            # in ws_keepalive_loop normally fails a dead socket
+                            # long before this 120 s round-trip cap is hit)
 WS_ACCEPT_KEY = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"   # RFC 6455 GUID
 MAX_FRAME = 64 << 20        # sanity cap for a single WS message (64 MiB)
 KEEPALIVE_INTERVAL = 15     # daemon->extension WS ping period (MV3 SW keepalive)
+
+
+def _env_positive_seconds(name: str, default: float) -> float:
+    """Read a positive float env override (WBF_STALE_AFTER-style), else
+    `default`. Same env-var style as WBF_TOKEN / WBF_TOKEN_FILE."""
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        return default
+    return val if val > 0 else default
+
+
+# Application-level liveness deadline: the extension's MV3 service worker
+# sends {"type":"ping"} every 15 s (extension/background.js HEARTBEAT_MS). A
+# worker that gets suspended/frozen stops sending it, even though the browser
+# network stack keeps the TCP socket open and still answers RFC 6455 pings
+# (opcode 0x9) automatically. So app-level silence — not the protocol-level
+# pong — is the death signal: no text/binary frame for WS_STALE_AFTER seconds
+# (heartbeat 15 s x 3, one jitter margin) => the socket is declared stale and
+# dropped, failing in-flight commands fast instead of waiting EVAL_TIMEOUT.
+WS_STALE_AFTER = _env_positive_seconds("WBF_STALE_AFTER", 45.0)
 
 # ---------------------------------------------------------------------------
 # Shared-secret auth (default ON). The daemon owns a random token persisted at
@@ -361,8 +388,10 @@ class Bridge:
         self._lock = threading.RLock()
         self._ws_listener = None    # listening socket on :10087
         self._ws_sock = None        # current extension connection
+        self._ws_gen = 0            # connection generation (takeover guard)
         self._client_browser = ''   # 'chrome' | 'edge' | '' (WS client UA)
         self._connected_since = None  # time.time() of the current connection
+        self._last_app_rx = time.monotonic()  # last app-level frame (0x1/0x2)
         self._pending = {}          # request id -> concurrent.futures.Future
         self._ids = itertools.count(1)
         # Per-request humanize flag (P1): dispatch() sets it on the handling
@@ -377,19 +406,36 @@ class Bridge:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((WS_HOST, WS_PORT))
-        srv.listen(1)                       # one extension connection at a time
+        srv.listen(8)                       # allow handshakes to queue (no RST
+                                            # while a prior conn is draining)
         self._ws_listener = srv
 
     def ws_accept_loop(self) -> None:
-        """Accept + serve extension connections forever (one at a time)."""
+        """Accept extension connections forever, one thread per connection.
+
+        accept() must return promptly: a dead-but-open socket (MV3 worker
+        suspended; browser network process still holds the TCP) used to keep
+        the frame loop blocked in _read_frame() forever, so the daemon never
+        got back to accept() and every new handshake piled up unserved.
+        """
         while True:
             conn, addr = self._ws_listener.accept()
+            threading.Thread(target=self._serve_ws_guarded, args=(conn, addr),
+                             daemon=True, name="ws-conn").start()
+
+    def _serve_ws_guarded(self, conn: socket.socket, addr=("?", 0)) -> None:
+        """Run one connection's frame loop; never let it kill the acceptor."""
+        try:
+            self._serve_ws(conn, addr)
+        except Exception as exc:            # noqa: BLE001 - thread must not die
+            log.warning("extension connection ended: %s", exc)
+        finally:
+            # Always close our own fd: _serve_ws' normal exits (close frame,
+            # unsupported opcode) return without closing it.
             try:
-                self._serve_ws(conn, addr)
-            except Exception as exc:        # noqa: BLE001 - loop must survive
-                log.warning("extension connection ended: %s", exc)
-            finally:
-                self._drop_connection()
+                conn.close()
+            except OSError:
+                pass
 
     def _serve_ws(self, conn: socket.socket, addr=("?", 0)) -> None:
         # --- handshake ---
@@ -398,8 +444,6 @@ class Bridge:
         # handshake User-Agent, kept on the instance, and put on every
         # connect/connected/disconnect log line.
         browser = _parse_ua_browser(head)
-        with self._lock:
-            self._client_browser = browser
         log.info("extension connecting (%s) from %s",
                  browser or "unknown", addr)
         # P0-3: the extension must present the shared token as
@@ -435,46 +479,92 @@ class Bridge:
             "Connection: Upgrade\r\n"
             f"Sec-WebSocket-Accept: {accept}\r\n\r\n".encode()
         )
+        # --- handshake succeeded: take over the (single) extension slot ---
+        # Under the lock: bump the generation, swap in this connection, and
+        # snapshot+take any pending futures. Only the requests already handed
+        # to the OLD socket are failed below; anything arriving after this
+        # critical section goes to the new socket (never wrongly failed).
         with self._lock:
+            self._ws_gen += 1
+            gen = self._ws_gen
+            old = self._ws_sock
             self._ws_sock = conn
+            self._client_browser = browser
             self._connected_since = time.time()
+            self._last_app_rx = time.monotonic()
+            pending, self._pending = self._pending, {}
+        if old is not None and old is not conn:
+            # Kick the previous socket: shutdown() unblocks its _read_frame()
+            # immediately so its thread exits and closes its own fd.
+            log.info("extension reconnected (%s) from %s — taking over, "
+                     "dropping previous connection", browser or "unknown", addr)
+            try:
+                old.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                old.close()
+            except OSError:
+                pass
+            err = {"ok": False, "disconnected": True}
+            for fut in pending.values():
+                if not fut.done():
+                    fut.set_result(err)
         log.info("extension connected (%s) -> ws://%s:%d ready",
                  browser or "unknown", WS_HOST, WS_PORT)
 
         # --- frame loop ---
-        fragments = bytearray()
-        while True:
-            opcode, fin, payload = _read_frame(conn)
-            if opcode == 0x8:                       # close
-                try:
-                    with self._lock:
-                        conn.sendall(_build_frame(0x8, bytes(payload[:125])))
-                except OSError:
-                    pass
-                return
-            if opcode == 0x9:                       # ping -> pong
-                with self._lock:
-                    conn.sendall(_build_frame(0xA, bytes(payload)))
-                continue
-            if opcode == 0xA:                       # pong (heartbeat reply)
-                continue
-            if opcode in (0x1, 0x2):                # text / binary start
-                fragments = bytearray(payload)
-            elif opcode == 0x0:                     # continuation
-                fragments += payload
-            else:
-                log.warning("unsupported ws opcode %d; closing", opcode)
-                return
-            if not fin:
-                continue
-            raw = bytes(fragments)
+        try:
             fragments = bytearray()
-            try:
-                msg = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
-                log.warning("non-JSON ws message dropped")
-                continue
-            self._handle_ws_message(msg)
+            frag_is_app = False
+            while True:
+                opcode, fin, payload = _read_frame(conn)
+                if opcode == 0x8:                       # close
+                    try:
+                        with self._lock:
+                            conn.sendall(_build_frame(0x8, bytes(payload[:125])))
+                    except OSError:
+                        pass
+                    return
+                if opcode == 0x9:                       # ping -> pong
+                    with self._lock:
+                        conn.sendall(_build_frame(0xA, bytes(payload)))
+                    continue
+                if opcode == 0xA:                       # pong (heartbeat reply)
+                    # RFC 6455 pong is answered by the browser network stack,
+                    # NOT by extension JS: it says nothing about SW liveness,
+                    # so it must NOT refresh the app-level liveness clock.
+                    continue
+                if opcode in (0x1, 0x2):                # text / binary start
+                    fragments = bytearray(payload)
+                    frag_is_app = True
+                elif opcode == 0x0:                     # continuation
+                    fragments += payload
+                else:
+                    log.warning("unsupported ws opcode %d; closing", opcode)
+                    return
+                if not fin:
+                    continue
+                raw = bytes(fragments)
+                fragments = bytearray()
+                if frag_is_app:
+                    # A complete application message (the extension's
+                    # {"type":"ping"} included) is the only proof its JS is
+                    # alive -> refresh the stale watchdog clock.
+                    frag_is_app = False
+                    with self._lock:
+                        self._last_app_rx = time.monotonic()
+                try:
+                    msg = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    log.warning("non-JSON ws message dropped")
+                    continue
+                self._handle_ws_message(msg)
+        finally:
+            # Only clears shared state while this is still the current
+            # generation; if a newer connection took over, this is a no-op
+            # (otherwise the dying old thread would wipe the new state).
+            self._drop_connection(gen)
 
     # -------- message handling ---------------------------------------------
 
@@ -498,9 +588,18 @@ class Bridge:
         else:
             fut.set_result(msg)
 
-    def _drop_connection(self) -> None:
-        """Extension went away: fail every in-flight request with 503 info."""
+    def _drop_connection(self, gen: int | None = None) -> None:
+        """Extension went away: fail every in-flight request with 503 info.
+
+        `gen` is the connection generation that is going away. When it is
+        given and no longer current, a newer connection has already taken the
+        slot, so this stale exit must touch nothing (guards against an old
+        frame loop clearing the new connection's state). `gen is None` keeps
+        the unconditional behaviour for callers with no generation.
+        """
         with self._lock:
+            if gen is not None and gen != self._ws_gen:
+                return
             browser = self._client_browser
             self._ws_sock = None
             self._client_browser = ''
@@ -570,11 +669,35 @@ class Bridge:
                 sock = self._ws_sock
                 if sock is None:
                     continue
-                try:
-                    sock.sendall(_build_frame(0x9, b""))
-                except OSError:
-                    # Socket is gone; the frame loop will notice and drop it.
-                    log.warning("keepalive ping failed; extension socket gone")
+                gen = self._ws_gen
+                silent_for = time.monotonic() - self._last_app_rx
+                if silent_for > WS_STALE_AFTER:
+                    stale_sock = sock
+                else:
+                    stale_sock = None
+                    try:
+                        sock.sendall(_build_frame(0x9, b""))
+                    except OSError:
+                        # Socket is gone; frame loop will notice and drop it.
+                        log.warning("keepalive ping failed; extension socket gone")
+            if stale_sock is None:
+                continue
+            # No app-level frame for too long => the extension's service
+            # worker is suspended/dead while the TCP socket stays open. Drop
+            # it so the extension can reconnect and in-flight commands fail
+            # fast (503) instead of waiting out EVAL_TIMEOUT.
+            log.warning("ws stale: no application frame for %.1fs (> %.1fs) — "
+                        "extension service worker likely suspended; "
+                        "dropping connection", silent_for, WS_STALE_AFTER)
+            try:
+                stale_sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                stale_sock.close()
+            except OSError:
+                pass
+            self._drop_connection(gen)
 
     # -------- HTTP command dispatch ----------------------------------------
 

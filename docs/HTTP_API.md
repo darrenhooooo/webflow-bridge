@@ -53,6 +53,9 @@ curl -s -X POST http://127.0.0.1:10086/command \
 # => {"status": "ok", "data": {"value": {"tab": {...}, "paths": {...}}}}
 # If the extension is not connected you instead get:
 #    503 {"error": "extension not connected"}
+# A disconnected (or silently dead) extension fails fast: the daemon answers
+# 503 right away instead of letting the request hang for the 120 s round-trip
+# cap.
 ```
 
 Every `/command` response — success or error, including `401`/`403`/`503` —
