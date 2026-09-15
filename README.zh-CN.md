@@ -106,6 +106,12 @@ curl.exe -s -X POST http://127.0.0.1:10086/command -H "Content-Type: application
 python3 daemon/smoke.py          # Windows: py -3.11 daemon/smoke.py
 ```
 
+跨标签 / 原生弹窗回归有一个自包含的端到端检查脚本（隔离 Chrome + 隔离 daemon，失败时非零退出）：
+
+```bash
+uv run --with websocket-client --python 3.11 python tools/dialog_scope_regression.py
+```
+
 ### Firefox（独立版）
 
 Firefox 走自己的 daemon、端口 `:10096`，基于 WebDriver BiDi —— 核心驱动**无需安装任何扩展**，驱动的是你日常在用的真实 Firefox profile。动作契约与 `POST /command` 形状一致，脚本只需把地址从 `:10086` 换成 `:10096`：
@@ -205,5 +211,5 @@ Webflow Bridge **免费开源（MIT）** —— 见 [LICENSE](LICENSE)。如果�
 
 - ⭐ 点 Star —— [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
 - 🐛 报 Bug / 提需求 —— [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
-- 📦 Releases —— [v1.2.1](https://github.com/darrenhooooo/webflow-bridge/releases)
+- 📦 Releases —— [v1.2.2](https://github.com/darrenhooooo/webflow-bridge/releases)
 - ✉️ 联系 —— darren.hou@outlook.com

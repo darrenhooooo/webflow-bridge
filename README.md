@@ -106,6 +106,13 @@ Expected: `{"status": "ok", "data": {"value": "<your tab title>"}}`
 python3 daemon/smoke.py          # Windows: py -3.11 daemon/smoke.py
 ```
 
+For the native-dialog / cross-tab regression there is a self-contained
+end-to-end check (isolated Chrome + isolated daemon, non-zero exit on failure):
+
+```bash
+uv run --with websocket-client --python 3.11 python tools/dialog_scope_regression.py
+```
+
 ### Firefox (separate edition)
 
 Firefox runs through its own daemon on `:10096` over WebDriver BiDi — the core driver needs **no extension installed**, and it drives your real daily Firefox profile. Same action surface, same `POST /command` shape; point scripts at `http://127.0.0.1:10096`:
@@ -205,5 +212,5 @@ Webflow Bridge is **free and open source (MIT)** — see [LICENSE](LICENSE). If 
 
 - ⭐ Star — [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
 - 🐛 Report bugs / request features — [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
-- 📦 Releases — [v1.2.1](https://github.com/darrenhooooo/webflow-bridge/releases)
+- 📦 Releases — [v1.2.2](https://github.com/darrenhooooo/webflow-bridge/releases)
 - ✉️ Contact — darren.hou@outlook.com

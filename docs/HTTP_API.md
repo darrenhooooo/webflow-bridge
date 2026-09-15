@@ -1,6 +1,6 @@
 # Webflow Bridge HTTP API — zero-SDK driver guide (standard browser-bridge agent-tool names)
 
-**Webflow Bridge Command API v1.2.1** · base URL `http://127.0.0.1:10086`
+**Webflow Bridge Command API v1.2.2** · base URL `http://127.0.0.1:10086`
 · OpenAPI description: [`../openapi/openapi.yaml`](../openapi/openapi.yaml)
 
 ## What this proves
@@ -507,7 +507,9 @@ short-circuited by it. A dialog on tab A marks no path `skipped` on tab B and
 does not fail B's evaluate/click/screenshot. `dialog.pending` carries the
 owning `tabId`, and switching away from the dialog tab does not lose it: the
 extension keeps that tab's debugger session attached ("pinned") so switching
-back still finds the dialog and `handle_dialog` can resolve it.
+back still finds the dialog and `handle_dialog` can resolve it. You do not even
+have to switch back: pass that tab's id as `handle_dialog`'s `tabId` and its
+dialog is resolved while another tab stays the active one.
 
 **Known boundary (the 30 s fallback is still real).** The extension can only
 learn about a dialog after it is attached and the `Page` domain is enabled. A

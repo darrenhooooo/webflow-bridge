@@ -5,7 +5,7 @@ import zipfile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 src = BASE
-out = os.path.join(BASE, 'dist', 'webflow-bridge-firefox-1.2.1.zip')
+out = os.path.join(BASE, 'dist', 'webflow-bridge-firefox-1.2.2.zip')
 os.makedirs(os.path.dirname(out), exist_ok=True)
 if os.path.exists(out):
     os.remove(out)

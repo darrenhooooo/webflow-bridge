@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.2 — 2026-09-16
 
 ### Fixed
 - **Manual dialog mode no longer makes the caller wait 30 s.** While a native

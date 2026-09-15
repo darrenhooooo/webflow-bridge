@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Webflow Bridge Command API
-  version: 1.2.1
+  version: 1.2.2
   description: >-
     Local browser-automation bridge — protocol-compatible agent-tool surface for browser bridges
     replacement driven over plain HTTP (zero SDK, any HTTP client works).
@@ -220,7 +220,10 @@ components:
                            Cancel/leave; promptText (string, optional) answer
                            to a prompt(); timeoutMs (integer 1..15000,
                            optional, default 2000) max wait for the dialog to
-                           open; tabId (int, optional). With the default
+                           open; tabId (int, optional; may name a non-active
+                           tab whose dialog is pending, so a dialog on one
+                           tab can be resolved while another stays active).
+                           With the default
                            auto-accept policy the dialog is usually already
                            resolved, so this answers "no JavaScript dialog is
                            showing within <n>ms". A dialog opened in manual
@@ -298,10 +301,12 @@ components:
                 error}; tabs_list an array of tabs; tabs_open {"id","url"};
                 tabs_close {"closed":<tabId>}; tabs_close_all_but
                 {"closed":<count>}; tabs_activate {"tabId","active":true};
-                probe {tab, paths, dialog:{policy, pending, lastError,
-                blocking}, downloads:{count, last}} (while a native dialog
-                blocks the tab it answers immediately with dialog.blocking
-                true and every path marked "skipped: ...");
+                probe {tab, paths, dialog:{policy, pending:{tabId, type,
+                message, defaultPrompt, url}, lastError, blocking},
+                downloads:{count, last}} (dialog blocking is per-tab:
+                blocking is true only when pending belongs to the probed tab,
+                and only then is every path marked "skipped: ..."; pending
+                always carries the owning tabId);
                 screenshot {base64, mime, width, height};
                 upload {success, file, tag}; save_as_pdf {base64,
                 mime:"application/pdf"}; mouse_click {success, x, y};
