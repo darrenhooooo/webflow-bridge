@@ -139,6 +139,7 @@ import socket
 import struct
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HTTP_HOST = "127.0.0.1"
@@ -361,6 +362,7 @@ class Bridge:
         self._ws_listener = None    # listening socket on :10087
         self._ws_sock = None        # current extension connection
         self._client_browser = ''   # 'chrome' | 'edge' | '' (WS client UA)
+        self._connected_since = None  # time.time() of the current connection
         self._pending = {}          # request id -> concurrent.futures.Future
         self._ids = itertools.count(1)
         # Per-request humanize flag (P1): dispatch() sets it on the handling
@@ -435,6 +437,7 @@ class Bridge:
         )
         with self._lock:
             self._ws_sock = conn
+            self._connected_since = time.time()
         log.info("extension connected (%s) -> ws://%s:%d ready",
                  browser or "unknown", WS_HOST, WS_PORT)
 
@@ -501,6 +504,7 @@ class Bridge:
             browser = self._client_browser
             self._ws_sock = None
             self._client_browser = ''
+            self._connected_since = None
             pending, self._pending = self._pending, {}
         if browser:
             log.info("extension disconnected (%s)", browser)
@@ -508,6 +512,36 @@ class Bridge:
         for fut in pending.values():
             if not fut.done():
                 fut.set_result(err)
+
+    # -------- public connection introspection ------------------------------
+
+    def client_browser(self) -> str:
+        """Which browser the connected extension runs in ('chrome'/'edge'/'').
+
+        Empty string means no extension is connected (or its User-Agent was
+        unrecognised).
+        """
+        with self._lock:
+            return self._client_browser
+
+    def connection_status(self) -> dict:
+        """Connection snapshot for GET /status — no browser action required.
+
+        Answers whether an extension is connected, which browser it is, the
+        WS port it connects to, and since when (local-timezone ISO 8601).
+        """
+        with self._lock:
+            connected = self._ws_sock is not None
+            browser = self._client_browser
+            since = self._connected_since
+        return {
+            "extension_connected": connected,
+            "browser": browser,
+            "ws_port": WS_PORT,
+            "connected_since": (
+                datetime.fromtimestamp(since).astimezone().isoformat()
+                if since is not None else None),
+        }
 
     def _send_ws(self, obj: dict) -> None:
         frame = _build_frame(0x1, json.dumps(obj, ensure_ascii=False).encode("utf-8"))
@@ -1197,6 +1231,7 @@ class Bridge:
         with self._lock:
             sock, self._ws_sock = self._ws_sock, None
             lst, self._ws_listener = self._ws_listener, None
+            self._connected_since = None
         for s in (sock, lst):
             if s is not None:
                 try:
@@ -1218,37 +1253,37 @@ class CommandHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):                                  # noqa: N802 (stdlib API)
         if self.path != "/command":
-            return self._send_json(404, {"error": "not found: use POST /command"})
+            return self._send_command_json(404, {"error": "not found: use POST /command"})
         # P0-1: bearer-token auth comes BEFORE the Origin guard — a browser
         # page (sandboxed iframe Origin:null, DNS-rebinding) cannot know the
         # token and is stopped here with 401, whatever Origin it carries.
         who = str(self.client_address[0]) if self.client_address else ""
         if not check_auth(self.headers.get("Authorization")):
             audit("unauthorized http", who, detail=self.path)
-            return self._send_json(401, {
+            return self._send_command_json(401, {
                 "error": "unauthorized: missing or invalid bearer token"})
         # CSRF/Origin guard, before the body is parsed: browsers attach an
         # "Origin" header to page-originated POSTs; reject any origin outside
         # ALLOWED_ORIGINS. Absent Origin (native scripts/curl) is allowed.
         origin = self.headers.get("Origin")
         if origin is not None and origin not in ALLOWED_ORIGINS:
-            return self._send_json(403, {"error": "cross-origin POST blocked"})
+            return self._send_command_json(403, {"error": "cross-origin POST blocked"})
         length = self.headers.get("Content-Length")
         try:
             length = int(length) if length else 0
         except ValueError:
-            return self._send_json(200, {"status": "error", "error": "bad Content-Length"})
+            return self._send_command_json(200, {"status": "error", "error": "bad Content-Length"})
         raw = self.rfile.read(length) if length else b""
         try:
             payload = json.loads(raw.decode("utf-8") or "{}")
         except ValueError:
-            return self._send_json(200, {"status": "error", "error": "invalid JSON body"})
+            return self._send_command_json(200, {"status": "error", "error": "invalid JSON body"})
         try:
             status, body = BRIDGE.dispatch(payload, who=who)
         except Exception as exc:                        # noqa: BLE001
             log.exception("dispatch failed")
             status, body = 200, {"status": "error", "error": f"internal error: {exc}"}
-        self._send_json(status, body)
+        self._send_command_json(status, body)
 
     def do_GET(self):                                   # noqa: N802
         if self.path == "/config":
@@ -1257,7 +1292,28 @@ class CommandHandler(BaseHTTPRequestHandler):
             # A hostile web page cannot: no Access-Control-Allow-Origin is
             # sent, so CORS keeps the response unreadable to page JS.
             return self._send_json(200, {"token": AUTH_TOKEN or ""})
-        return self._send_json(405, {"error": "only POST /command is supported"})
+        if self.path == "/status":
+            # Connection introspection: ask which browser the extension runs
+            # in WITHOUT triggering any browser action. Same bearer-token
+            # check as /command; 200 whether or not an extension is connected
+            # (the endpoint's whole job is to answer "connected?").
+            who = str(self.client_address[0]) if self.client_address else ""
+            if not check_auth(self.headers.get("Authorization")):
+                audit("unauthorized http", who, detail=self.path)
+                return self._send_json(401, {
+                    "error": "unauthorized: missing or invalid bearer token"})
+            return self._send_json(200, {"status": "ok",
+                                        "data": BRIDGE.connection_status()})
+        return self._send_json(405, {"error": "only POST /command and GET /status are supported"})
+
+    def _send_command_json(self, status: int, body) -> None:
+        """POST /command responder: stamp every response body with the
+        top-level "browser" field (which browser the connected extension runs
+        in — 'chrome' / 'edge' / '' when none is connected). Pure addition:
+        existing fields and shapes are untouched."""
+        if isinstance(body, dict):
+            body["browser"] = BRIDGE.client_browser()
+        self._send_json(status, body)
 
     def _send_json(self, status: int, obj) -> None:
         raw = json.dumps(obj, ensure_ascii=False).encode("utf-8")

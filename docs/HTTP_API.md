@@ -1,6 +1,6 @@
 # Webflow Bridge HTTP API — zero-SDK driver guide (standard browser-bridge agent-tool names)
 
-**Webflow Bridge Command API v1.1.0** · base URL `http://127.0.0.1:10086`
+**Webflow Bridge Command API v1.2.0** · base URL `http://127.0.0.1:10086`
 · OpenAPI description: [`../openapi/openapi.yaml`](../openapi/openapi.yaml)
 
 ## What this proves
@@ -54,6 +54,38 @@ curl -s -X POST http://127.0.0.1:10086/command \
 # If the extension is not connected you instead get:
 #    503 {"error": "extension not connected"}
 ```
+
+Every `/command` response — success or error, including `401`/`403`/`503` —
+also carries a top-level `browser` field naming which browser the extension is
+connected in: `"chrome"`, `"edge"`, or `""` when no extension is connected.
+
+## GET /status
+
+Ask the daemon **which browser it is connected to** — and whether anything is
+connected at all — **without triggering any browser action**. Same shared
+bearer token as `POST /command`; a missing or invalid token answers `401`.
+Unlike `/command`, this endpoint returns `200` even when nothing is connected
+— answering "is it connected?" is its whole job.
+
+```bash
+curl -s http://127.0.0.1:10086/status \
+  -H "Authorization: Bearer $WBF_TOKEN"
+```
+
+Connected to Edge:
+
+```json
+{"status": "ok", "data": {"extension_connected": true, "browser": "edge", "ws_port": 10087, "connected_since": "2026-09-15T14:32:07.123456+08:00"}}
+```
+
+Nothing connected:
+
+```json
+{"status": "ok", "data": {"extension_connected": false, "browser": "", "ws_port": 10087, "connected_since": null}}
+```
+
+`browser` is `"chrome"`, `"edge"` or `""`; `connected_since` is a
+local-timezone ISO 8601 timestamp (or `null` when nothing is connected).
 
 ## Actions — one curl per action
 

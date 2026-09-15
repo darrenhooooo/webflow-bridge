@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.2.0 — 2026-09-15
+
+### Added
+- Daemon: every `POST /command` response now carries a top-level `browser` field
+  (`"chrome"` / `"edge"` / `""` when no extension is connected), so a client can
+  tell which browser the extension is running in without guessing.
+- New `GET /status` endpoint (bearer-token authenticated) reports connection
+  state without triggering any browser action: `extension_connected`, `browser`,
+  `ws_port`, `connected_since`.
+
+Backward-compatible additions (MINOR bump, see docs/VERSIONING.md): existing
+response fields/shapes, endpoints and auth/origin behaviour are unchanged.
+
+Both Chrome/Edge (extension/) and Firefox companion (ff/) manifests bumped in
+sync.
+
 ## v1.1.0 — 2026-09-10
 
 ### Added

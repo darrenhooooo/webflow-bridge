@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Webflow Bridge Command API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
     Local browser-automation bridge — protocol-compatible agent-tool surface for browser bridges
     replacement driven over plain HTTP (zero SDK, any HTTP client works).
@@ -20,6 +20,9 @@ paths:
         command is forwarded to the one connected Chrome/Edge extension
         (session "default"). Always 200 with an ok or error envelope, except
         403 (non-localhost Origin header, CSRF guard) and 503 (no extension).
+        Every response — including 401/403/503/404 — additionally carries a
+        top-level "browser" field naming which browser the connected
+        extension runs in ("chrome" | "edge" | "" when none is connected).
         Args are free-form (see schemas.Args); no bespoke SDK — this
         description alone lets curl, n8n, fetch or any generic HTTP client
         drive the bridge.
@@ -53,10 +56,13 @@ paths:
                 type: object
                 required:
                   - error
+                  - browser
                 properties:
                   error:
                     type: string
                     const: 'unauthorized: missing or invalid bearer token'
+                  browser:
+                    $ref: '#/components/schemas/Browser'
         '403':
           description: >-
             Cross-origin POST blocked — Origin header outside
@@ -74,6 +80,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Http503'
+  /status:
+    get:
+      operationId: status
+      summary: Report bridge connection state (no browser action)
+      description: >-
+        Answers whether a Chrome/Edge extension is connected and which browser
+        it runs in, without triggering any browser action. Requires the same
+        Authorization: Bearer token as POST /command (missing or invalid ->
+        401). Always 200 once authenticated — "nothing connected" is reported
+        in the body, not as 503.
+      responses:
+        '200':
+          description: >-
+            Connection snapshot. extension_connected is false and browser ""
+            when no extension is connected.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - data
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  data:
+                    $ref: '#/components/schemas/ConnectionStatus'
+        '401':
+          description: >-
+            Unauthorized — missing or invalid Authorization: Bearer token.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    const: 'unauthorized: missing or invalid bearer token'
 
 components:
   schemas:
@@ -207,6 +254,8 @@ components:
         status:
           type: string
           enum: [ok]
+        browser:
+          $ref: '#/components/schemas/Browser'
         data:
           type: object
           properties:
@@ -228,6 +277,7 @@ components:
       required:
         - status
         - data
+        - browser
     ErrorResponse:
       type: object
       description: 200-level failure (argument, action or extension error).
@@ -235,12 +285,15 @@ components:
         status:
           type: string
           enum: [error]
+        browser:
+          $ref: '#/components/schemas/Browser'
         error:
           type: string
           description: Human-readable failure reason.
       required:
         - status
         - error
+        - browser
     Http403:
       type: object
       description: CSRF guard rejection (browser-originated cross-origin POST).
@@ -248,8 +301,11 @@ components:
         error:
           type: string
           const: cross-origin POST blocked
+        browser:
+          $ref: '#/components/schemas/Browser'
       required:
         - error
+        - browser
     Http503:
       type: object
       description: No extension WebSocket is connected to the daemon.
@@ -257,5 +313,39 @@ components:
         error:
           type: string
           const: extension not connected
+        browser:
+          $ref: '#/components/schemas/Browser'
       required:
         - error
+        - browser
+    Browser:
+      type: string
+      enum: ['chrome', 'edge', '']
+      description: >-
+        Browser the connected extension runs in; "" when no extension is
+        connected or its User-Agent was unrecognised. Stamped on every
+        /command response and returned in GET /status data.
+    ConnectionStatus:
+      type: object
+      description: Connection snapshot returned by GET /status.
+      properties:
+        extension_connected:
+          type: boolean
+          description: True when an extension WebSocket is currently connected.
+        browser:
+          $ref: '#/components/schemas/Browser'
+        ws_port:
+          type: integer
+          description: WebSocket port the extension connects to (10087).
+        connected_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Local-timezone ISO 8601 timestamp of when the current connection
+            was established; null when none is connected.
+      required:
+        - extension_connected
+        - browser
+        - ws_port
+        - connected_since
