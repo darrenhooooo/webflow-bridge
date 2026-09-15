@@ -1,5 +1,63 @@
 # Changelog
 
+## v1.2.5 — 2026-09-16
+
+Batched release — the first release point since **v1.2.0**. The v1.2.1 / v1.2.2
+sections below were never tagged or released, so everything in them ships here
+too. The protocol action set is unchanged (no new action, no new parameter),
+hence a patch bump rather than a minor.
+
+### Added
+- **The popup's main card now tries to connect when clicked in the inactive
+  state**, instead of only printing an activation checklist. Clicking sends the
+  new `wf-dial-now` background message — it clears the pending backoff timer,
+  resets the backoff and dials the daemon WebSocket once — and the popup then
+  polls `wf-ping` every 150 ms for ~3 s, without blocking the regular 2 s status
+  poll. A daemon that is up therefore goes from `inactive` to `active` in tens
+  of milliseconds. Only if dialling fails is the checklist shown, and its
+  **first line now names the determined reason**: daemon not running, or daemon
+  running but the slot held by another browser. A paused state sends
+  `wf-reconnect` first; the deliberate "user disconnected" state is
+  intentionally unchanged (the card still does nothing there — the reconnect
+  button owns it). The Firefox edition is isomorphic, with its own wording for
+  `reason_daemon_busy`; the Chrome/Edge wording is untouched.
+
+### Fixed
+- **Native JavaScript dialogs no longer freeze the bridge.** `alert` /
+  `confirm` / `prompt` / `beforeunload` are auto-accepted as soon as they open
+  (runtime policy switch: `set_dialog_policy` / `--no-auto-dialog`), and every
+  `chrome.debugger.sendCommand` now carries a 30 s cap that resets the dead
+  session and fails with a self-explaining error instead of waiting out the
+  daemon's 120 s round-trip limit. Full detail in the v1.2.1 section below.
+- **Dialog blocking is scoped per tab, and `handle_dialog` is race-proof.** A
+  dialog on one tab no longer leaks onto another, manual mode fails in
+  milliseconds instead of 30 s, and a `not attached` / `detached` transport
+  error is retried exactly once after a re-attach. Full detail in the v1.2.2
+  section below.
+
+### Documentation
+- `docs/VERSIONING.md`: the three-part version rule is now written out
+  explicitly — the patch position takes only **0** (the minor/major release
+  point), **1** (an urgent single fix, which ships immediately and is exempt
+  from batching) or **5** (a batched release after 5 patch-level commits).
+  Intermediate values are no longer used. v1.2.1 / v1.2.2 predate the rule and
+  stay as they are; how a second batching round inside the same minor is
+  numbered is left as `TODO(darren)` rather than invented.
+
+### Build
+- The GitHub mirror workflow now mirrors CNB tags and publishes a GitHub
+  Release per new tag, building each package from that tag's own tree (the
+  rebuild scripts hardcode the version, so building on `main` would ship the
+  wrong sources for old tags) and using the matching CHANGELOG section as the
+  release notes. Per-tag failures are counted and reported as a non-zero exit
+  instead of aborting the loop. Backfilling old tags downgrades the GitHub App
+  workflow restriction to a warning naming the manual command, while still
+  failing the job on any other error, and releases are only created for tags
+  that really exist on origin.
+- All version carriers synced to 1.2.5: both manifests, `docs/HTTP_API.md`,
+  `openapi/openapi.yaml`, both `rebuild_zip.py` package names, `README.md`,
+  `README.zh-CN.md` and `SECURITY.md`.
+
 ## v1.2.2 — 2026-09-16
 
 ### Fixed

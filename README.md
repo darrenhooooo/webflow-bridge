@@ -212,5 +212,5 @@ Webflow Bridge is **free and open source (MIT)** — see [LICENSE](LICENSE). If 
 
 - ⭐ Star — [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
 - 🐛 Report bugs / request features — [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
-- 📦 Releases — [v1.2.2](https://github.com/darrenhooooo/webflow-bridge/releases)
+- 📦 Releases — [v1.2.5](https://github.com/darrenhooooo/webflow-bridge/releases)
 - ✉️ Contact — darren.hou@outlook.com
