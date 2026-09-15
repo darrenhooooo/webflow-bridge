@@ -27,6 +27,9 @@ Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要
 | 🪟 **JS 弹窗不卡流程** | alert / confirm / prompt 自动应答：确定、取消或输入答案。 |
 | 📎 **上传不弹系统框** | 点上传按钮、交给它本地文件路径即可 —— 系统"打开文件"窗口根本不会出现。 |
 | 🔓 **严格站点也能跑** | 页面禁用自身脚本的站点照常执行 —— x.com 等实测可用。 |
+| 🌍 **会说 16 种语言** | 弹窗与简介句跟随浏览器语言自动切换，零配置。支持：阿拉伯语、简体中文、繁体中文、英语、法语、德语、印地语、印度尼西亚语、意大利语、日语、韩语、葡萄牙语、俄语、西班牙语、泰语、越南语。 |
+| ⚡ **点一下就连上** | 弹窗显示**已激活**或**未激活**。未激活时点一下状态卡，它会主动帮你连 daemon；连不上会直接说明原因：daemon 没运行，或已被另一个浏览器占用。 |
+| 🔁 **macOS 常驻** | 一行命令把 daemon 交给 launchd，开机即在 —— 不用一直开着终端窗口。 |
 | 🔒 **天生隐私** | 一切都在你的机器上。无云、无账号、无遥测，数据不出设备。 |
 | 🧩 **一份扩展、两个浏览器** | 同一份 `extension/` 目录 Chrome、Edge 通用；Firefox 另有独立版（见 [ff/README.md](ff/README.md)）。 |
 
@@ -37,119 +40,19 @@ Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要
 - **端到端测试** —— 在真实浏览器会话上跑完整流程（开不开 DevTools 都行）。
 - **RPA 粘合剂** —— 任何"希望有个脚本能帮我点一下"、纯 HTTP 又搞不定的网站任务。
 
-它一次只驱动**一个标签页**，绝不抢你的鼠标和焦点 —— 它干活的同时，你照常用其他标签页、其他浏览器或任何别的软件。
+它一次只驱动**一个标签页**，绝不抢你的鼠标和焦点 —— 它干活的同时，你照常用其他标签页、其他浏览器或任何别的软件。想让它重启后继续待命？macOS 上一行命令交给 launchd 即可。
 
 ---
 
-## 快速安装
+## 安装
 
-你需要：**Python 3.11+** 和 Chrome 或 Edge。全程本地运行 —— 无账号、无云、无 API key。
+需要 **Python 3.11+** 和 Chrome、Edge 或 Firefox —— 全程本地，无账号、无云、无 API key。
 
-### Chrome & Edge —— macOS / Windows
+- **Chrome / Edge** —— 启动 daemon，再解压加载一次 `extension/`：`python3 daemon/webflow_bridge.py`（Windows：`py -3.11 daemon/webflow_bridge.py`），然后 `chrome://extensions`（Edge：`edge://extensions`）→ 开发者模式 → **加载已解压的扩展程序** → `extension/`。
+- **Firefox** —— 独立版、端口 `10096`：`ff/ff-launch.sh && python3 ff/daemon/ff_bridge.py`（Windows：`ff\ff-launch.bat && py -3.11 ff/daemon/ff_bridge.py`）。
+- **macOS 常驻** —— 按 [docs/INSTALL.md](docs/INSTALL.md) 完成一次 launchd 配置后，这行会让它每次登录自动启动：`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.webflow.bridge.plist`。
 
-**1. 启动 daemon**（在仓库根目录，一条命令）：
-
-```bash
-# macOS / Linux（或 Windows 的 Git Bash）
-python3 daemon/webflow_bridge.py
-```
-
-```powershell
-# Windows（原生 —— 用真实 Python 3.11+，不是 Microsoft Store 假桩）
-py -3.11 daemon/webflow_bridge.py
-```
-
-装有 [uv](https://astral.sh/uv/) 的系统可统一用：`uv run --python 3.11 daemon/webflow_bridge.py`
-
-首次启动会在 `~/.webflow_bridge/token` 生成随机共享密钥并开启鉴权。扩展会自动引导拿到 token；你自己的脚本每次 POST 需带 `Authorization: Bearer <token>`（或导出 `WBF_TOKEN`）。`--allow-no-auth` 仅作本地迁移窗口。
-
-看到带两个监听端口的启动横幅即成功：
-
-```
-========================================
-  Webflow Bridge daemon started
-    HTTP  : http://127.0.0.1:10086    POST /command
-    WS    : ws://127.0.0.1:10087          Chrome / Edge extension connects here
-========================================
-```
-
-**2. 加载扩展** —— 一次性、约 30 秒，刻意保持手动（永不自动安装）：
-
-1. Chrome 打开 `chrome://extensions`，Edge 打开 `edge://extensions`。
-2. 打开右上角**开发者模式**（两个浏览器开关一致）。
-3. **加载已解压的扩展程序** → 选择 `extension/` 文件夹（Chrome/Edge 同一份）。
-4. 固定「Webflow Bridge」，并让**活动标签页**停在普通网站上 —— `chrome://` 页、商店页和新标签页无法被调试。
-5. 改动 `manifest.json` 或 `background.js` 后需重载扩展 —— unpacked 扩展不会热应用修改。
-
-**3. 一条命令验证** —— 应返回你活动标签页的标题：
-
-```bash
-# macOS / Linux
-export WBF_TOKEN="$(cat ~/.webflow_bridge/token)"
-curl -s -X POST http://127.0.0.1:10086/command \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WBF_TOKEN" \
-  -d '{"action":"evaluate","args":{"code":"(() => document.title)()"},"session":"default"}'
-```
-
-```powershell
-# Windows（PowerShell）
-$env:WBF_TOKEN = (Get-Content "$HOME\.webflow_bridge\token" -Raw).Trim()
-curl.exe -s -X POST http://127.0.0.1:10086/command -H "Content-Type: application/json" -H "Authorization: Bearer $env:WBF_TOKEN" -d '{"action":"evaluate","args":{"code":"(() => document.title)()"},"session":"default"}'
-```
-
-预期结果：`{"status": "ok", "data": {"value": "<你的标签页标题>"}}`
-
-**4.（可选）冒烟测试** —— 逐项打印 PASS/FAIL，失败时非零退出：
-
-```bash
-python3 daemon/smoke.py          # Windows: py -3.11 daemon/smoke.py
-```
-
-跨标签 / 原生弹窗回归有一个自包含的端到端检查脚本（隔离 Chrome + 隔离 daemon，失败时非零退出）：
-
-```bash
-uv run --with websocket-client --python 3.11 python tools/dialog_scope_regression.py
-```
-
-### Firefox（独立版）
-
-Firefox 走自己的 daemon、端口 `:10096`，基于 WebDriver BiDi —— 核心驱动**无需安装任何扩展**，驱动的是你日常在用的真实 Firefox profile。动作契约与 `POST /command` 形状一致，脚本只需把地址从 `:10086` 换成 `:10096`：
-
-```bash
-# Windows
-ff\ff-launch.bat
-py -3.11 ff/daemon/ff_bridge.py
-
-# macOS
-chmod +x ff/ff-launch.sh && ff/ff-launch.sh
-python3 ff/daemon/ff_bridge.py
-```
-
-完整指南（启动器、鉴权、动作矩阵、已知边界）：**[ff/README.md](ff/README.md)**。
-
-## 用自己的代码驱动 —— 零 SDK
-
-上面那条 curl 就是全部协议。下面是同一调用用纯 Python 标准库写的样子 —— 也就是你现有发布脚本已经在用的形态：
-
-```python
-import json, os, urllib.request
-
-token = open(os.path.expanduser("~/.webflow_bridge/token")).read().strip()
-
-def command(action, **args):
-    req = urllib.request.Request(
-        "http://127.0.0.1:10086/command",
-        data=json.dumps({"action": action, "args": args,
-                         "session": "default"}).encode(),
-        headers={"Content-Type": "application/json",
-                 "Authorization": "Bearer " + token})
-    return json.load(urllib.request.urlopen(req))
-
-print(command("evaluate", code="(() => document.title)()")["data"]["value"])
-```
-
-daemon 开着、活动标签页停在普通网站上时运行它，会打印该标签页标题。凡是能说 `POST /command` 的都一样能用：curl、Python、Node，或带浏览器桥工具的 AI agent。完整的零 SDK 演练（5 步、真实页面）见 [docs/HTTP_API.md](docs/HTTP_API.md)。
+完整细节 —— 两种启动方式、launchd/systemd、端口与 token、卸载与排错：**[docs/INSTALL.md](docs/INSTALL.md)**。
 
 ## 常见问题速查
 
@@ -159,18 +62,7 @@ daemon 开着、活动标签页停在普通网站上时运行它，会打印该�
 - **端口被占用** —— 已有另一个 Webflow Bridge 实例在跑，先停掉它。
 - **报错提到 "Content Security Policy"** —— 你还在 content-script 时代的旧构建上。到 `chrome://extensions` 完整重载扩展；当前构建走调试通道，页面 CSP 拦不住。
 
-完整故障排查表在本文件末尾。
-
-## 文档导航
-
-| 文档 | 内容 |
-|---|---|
-| [docs/HTTP_API.md](docs/HTTP_API.md) | `POST /command` 协议契约 —— 每个核心动作一条 curl、错误结构、零 SDK 完整 demo 流程。 |
-| [docs/PRIVACY.md](docs/PRIVACY.md) | 通俗英文隐私政策（扩展做什么、数据、权限）。 |
-| [docs/STORE_LISTING.md](docs/STORE_LISTING.md) | Chrome Web Store 上架素材包 —— 名称、摘要、描述、敏感权限说明。 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本历史。 |
-| [docs/VERSIONING.md](docs/VERSIONING.md) | 版本策略与 bump 检查清单。 |
-| [ff/README.md](ff/README.md) | Firefox 独立版 —— 安装、动作矩阵、平台状态、已知边界。 |
+完整故障排查表见 [docs/INSTALL.md](docs/INSTALL.md)。
 
 ## 支持平台
 
@@ -191,19 +83,19 @@ daemon 开着、活动标签页停在普通网站上时运行它，会打印该�
 - **零第三方依赖。** daemon 只用 Python 标准库。
 - **MIT 许可** —— 自由使用、修改与嵌入。
 
-## 完整故障排查
+## 文档导航
 
-| 症状 | 修复 |
+| 文档 | 内容 |
 |---|---|
-| `503 {"error":"extension not connected"}` | Chrome/Edge 开着吗？扩展加载了吗（`chrome://extensions` / `edge://extensions`）？查后台 worker 控制台有没有 "connected to daemon"。 |
-| evaluate 报 "no active tab found" 或 "chrome:// … cannot be debugged" | 活动标签是 `chrome://…`、新标签页或商店页 —— 都不能调试。在活动标签打开真实网站重试。 |
-| evaluate 报 "Another debugger is already attached" | 该标签附着着 DevTools（或另一个 CDP 客户端）。关掉再试。 |
-| evaluate 报错提到 "Content Security Policy" | content-script 时代的陈旧构建。到 `chrome://extensions`（或 `edge://extensions`）完整重载「Webflow Bridge」—— 当前构建走调试通道，页面 CSP 和扩展 CSP 都拦不住。 |
-| 120 s 超时 | 活动标签忙（模态框/脚本阻塞），或 async 片段一直没跑完 —— CDP 会 await Promise 完成值。 |
-| 端口被占用 | 另一个实例在跑 —— 先停掉。 |
-| daemon 重启后扩展掉线 | 自动恢复：指数退避重连（上限 30 s）；下次 evaluate 自动 re-attach —— 无需操作。 |
-| JS 弹窗出现了但 `handle_dialog` 报 no dialog | 旧版扩展（attach 时没开 Page 域）。到 `chrome://extensions` 重载扩展。 |
-| 点上传按钮弹系统"打开文件"框 | 旧构建没有文件选择拦截。重载扩展后，click 触发再调 `handle_file_chooser`。 |
+| [docs/INSTALL.md](docs/INSTALL.md) | 安装、launchd/systemd 常驻、端口与 token、验证、卸载、完整故障排查。 |
+| [docs/HTTP_API.md](docs/HTTP_API.md) | `POST /command` 协议契约 —— 每个核心动作一条 curl、错误结构、零 SDK 完整 demo 流程。 |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | 通俗英文隐私政策（扩展做什么、数据、权限）。 |
+| [docs/STORE_LISTING.md](docs/STORE_LISTING.md) | Chrome Web Store 上架素材包 —— 名称、摘要、描述、敏感权限说明。 |
+| [ff/README.md](ff/README.md) | Firefox 独立版 —— 安装、动作矩阵、平台状态、已知边界。 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本历史。 |
+| [docs/VERSIONING.md](docs/VERSIONING.md) | 版本策略与 bump 检查清单。 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 如何参与贡献。 |
+| [SECURITY.md](SECURITY.md) | 安全策略与漏洞报告方式。 |
 
 ## 许可证与支持
 
