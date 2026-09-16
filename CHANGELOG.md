@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.3.0 — 2026-09-16
+
+Minor bump: language coverage grows from 12 to 16 and the product description
+now uses the browser's own localization mechanism. The protocol action set is
+unchanged (no new action, no new parameter).
+
+### Added
+- **Four new UI languages: Vietnamese, Thai, Indonesian and Hindi.** The popup
+  is now localized in 16 languages (en, ja, ko, fr, de, es, pt, ru, ar, it, vi,
+  th, id, hi, zh-CN, zh-TW) — 30 keys per language in the Chrome/Edge popup and
+  83 in the Firefox companion. The activation / inactive guidance (the three
+  state words, the four checklist rows, both failure reasons, reconnect and
+  disconnect, copy and copy-failed, re-check) is written per language rather
+  than translated word for word; the two entries whose meaning differs between
+  the editions (`reason_daemon_busy`, `row_page`) are translated separately.
+- Language matching accepts `vi` / `th` / `id` / `hi`, and the legacy
+  Indonesian code `in` now falls back to `id`.
+
+### Changed
+- **The product description now follows the browser's own localization.** Both
+  manifests use `__MSG_extDescription__` with `default_locale: zh_CN` and ship
+  16 `_locales/<locale>/messages.json` each, so a store listing shows the
+  visitor's own language. The text reads differently per edition by design: the
+  Chrome/Edge extension says "hand your browser to your AI — everything runs on
+  your machine, your data never leaves it", while the Firefox companion
+  describes itself as the local control panel (status, scripts, tabs) that only
+  connects locally.
+- Every carrier of the old wording was updated with it: README (EN + zh-CN),
+  docs/STORE_LISTING.md (16-language table), the first line of docs/PRIVACY.md,
+  the openapi description, and the daemon module docstring (string only, no
+  logic change).
+
 ## v1.2.5 — 2026-09-16
 
 Batched release — the first release point since **v1.2.0**. The v1.2.1 / v1.2.2
