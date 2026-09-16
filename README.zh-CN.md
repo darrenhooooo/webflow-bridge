@@ -90,10 +90,8 @@ Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要
 | [docs/INSTALL.md](docs/INSTALL.md) | 安装、launchd/systemd 常驻、端口与 token、验证、卸载、完整故障排查。 |
 | [docs/HTTP_API.md](docs/HTTP_API.md) | `POST /command` 协议契约 —— 每个核心动作一条 curl、错误结构、零 SDK 完整 demo 流程。 |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | 通俗英文隐私政策（扩展做什么、数据、权限）。 |
-| [docs/STORE_LISTING.md](docs/STORE_LISTING.md) | Chrome Web Store 上架素材包 —— 名称、摘要、描述、敏感权限说明。 |
 | [ff/README.md](ff/README.md) | Firefox 独立版 —— 安装、动作矩阵、平台状态、已知边界。 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本历史。 |
-| [docs/VERSIONING.md](docs/VERSIONING.md) | 版本策略与 bump 检查清单。 |
+| [Releases](https://github.com/darrenhooooo/webflow-bridge/releases) | 版本历史与发布说明。 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 如何参与贡献。 |
 | [SECURITY.md](SECURITY.md) | 安全策略与漏洞报告方式。 |
 

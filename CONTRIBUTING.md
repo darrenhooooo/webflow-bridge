@@ -29,9 +29,9 @@ darren.hou@outlook.com instead, see [SECURITY.md](SECURITY.md).
 
 Use GitHub Issues too. Describe the real use case (the site, the flow, what
 you want the script to end up doing) rather than just an action name — on
-the 1.x line only backwards-compatible action additions are accepted (see
-docs/VERSIONING.md), and good use-case context is what lets a maintainer
-judge whether a request fits.
+the 1.x line only backwards-compatible action additions are accepted, and
+good use-case context is what lets a maintainer judge whether a request
+fits.
 
 ## Local development setup
 
@@ -71,13 +71,13 @@ PASS/FAIL per check, exiting non-zero on any failure:
    self-explanatory.
 3. Run the matching smoke tests above and make sure they pass.
 4. Describe the change in the PR — especially *behaviour changes*. A change
-   to an action's behaviour or response shape must follow the versioning
-   policy in [docs/VERSIONING.md](docs/VERSIONING.md) (no silent bumps).
+   to an action's behaviour or response shape must be called out in the PR
+   description (no silent behaviour changes).
 5. Commit style: a short summary line, first line under ~72 characters.
    Chinese or English are both fine — the history uses both (e.g.
    `fix(daemon): reject empty bearer tokens`). User-visible changes should
-   get a CHANGELOG.md note; release entries themselves are curated by the
-   maintainers at bump time.
+   be described in the PR; release notes are curated by the maintainers at
+   release time.
 6. Line endings: repository text files are **CRLF** — keep the ending style
    of the files you touch (`.gitattributes` forces LF for `*.sh` only).
 
@@ -87,18 +87,17 @@ green local smoke run is the merge gate.
 
 ## Release process (maintainers)
 
-- Version bumps follow [docs/VERSIONING.md](docs/VERSIONING.md) (SemVer 2.0;
-  a security/bug fix ships as a patch, e.g. 1.0.0 → 1.0.1).
+- Version bumps follow SemVer 2.0 (a security/bug fix ships as a patch, e.g.
+  1.0.0 → 1.0.1).
 - Every bump synchronises the version carriers listed there:
   `extension/manifest.json` and `ff/extension/manifest.json`, the
-  `docs/HTTP_API.md` title, the dist zip names, `CHANGELOG.md` and the git tag.
+  `docs/HTTP_API.md` title, the dist zip names, the release notes and the git tag.
 - Rebuild artifacts: Chrome/Edge — `python3 tools/rebuild_zip.py` →
   `dist/webflow-bridge-<ver>.zip`; Firefox AMO —
   `python3 ff/extension/rebuild_zip.py` → `dist/webflow-bridge-firefox-<ver>.zip`.
 - Gate: Chrome smoke plus the Firefox smokes all green before tagging.
-- Tag and push: `git tag v<ver>`, then `tools/push-both.sh "<msg>"` pushes the
-  CNB origin and the GitHub public repo (GitHub's mirror workflow then stays
-  in sync automatically).
+- Tag and push: `git tag v<ver>`, then push to the CNB origin and the GitHub
+  public repo (GitHub's mirror workflow then stays in sync automatically).
 
 ## Code of conduct
 

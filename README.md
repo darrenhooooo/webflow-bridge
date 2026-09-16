@@ -90,10 +90,8 @@ Honest limits: it drives **one tab at a time** and never steals your cursor or f
 | [docs/INSTALL.md](docs/INSTALL.md) | Install, launchd/systemd, ports & tokens, verification, uninstall, full troubleshooting. |
 | [docs/HTTP_API.md](docs/HTTP_API.md) | The `POST /command` contract — every core action with one curl each, error shapes, a complete zero-SDK demo flow. |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | Plain-English privacy policy (what the extension does, data, permissions). |
-| [docs/STORE_LISTING.md](docs/STORE_LISTING.md) | Chrome Web Store submission kit — name, summary, description, permission justifications. |
 | [ff/README.md](ff/README.md) | Firefox edition — install, action matrix, platform status, known limits. |
-| [CHANGELOG.md](CHANGELOG.md) | Release history. |
-| [docs/VERSIONING.md](docs/VERSIONING.md) | Versioning policy and bump checklist. |
+| [Releases](https://github.com/darrenhooooo/webflow-bridge/releases) | Release history and notes. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute. |
 | [SECURITY.md](SECURITY.md) | Security policy and how to report an issue. |
 

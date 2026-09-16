@@ -13,8 +13,7 @@ issue. Email **darren.hou@outlook.com** with:
 - (Optional) a suggested fix.
 
 **Response commitment**: we acknowledge within **48 hours**, keep you posted
-on progress, and ship a fix as a patch release (see the versioning policy in
-[docs/VERSIONING.md](docs/VERSIONING.md)). We support coordinated disclosure
+on progress, and ship a fix as a patch release. We support coordinated disclosure
 and ask that you hold details until the fix is out.
 
 ## Supported versions

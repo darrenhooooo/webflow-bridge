@@ -916,7 +916,7 @@ def _net_type(destination, initiator) -> str:
 # P1 primitives -- BiDi building blocks shared by the P1 actions below.
 # All JS snippets are built with json.dumps() so caller strings can never
 # break out of the expression.  Behaviour notes verified live on Firefox
-# 155.0.1 (see .pi_ff_p1_task.txt report section 1):
+# 155.0.1 (behaviour verified live; notes below):
 #   - node RemoteValues carry sharedId even under resultOwnership "none"
 #   - pointer move origin must be the STRING "viewport" (the object form
 #     {"type":"viewport"} is rejected with "invalid argument"); element

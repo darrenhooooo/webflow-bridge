@@ -12,7 +12,7 @@ Prerequisites (one-time):
        python3 daemon/webflow_bridge.py            (restart if it was running)
   2. extension reloaded at chrome://extensions (after the background.js edit)
   3. this page server running:
-       python3 -m http.server 8921 -d tools/devtest
+       python3 -m http.server 8921 -d tools/fixtures
   4. Chrome open, ACTIVE tab on a normal page (the script navigates it)
 
 Usage:
