@@ -228,6 +228,8 @@ ToB 定 $10/用户/月起（对齐 Kasm 自托管锚，合规与支持另计）�
 > `duration_ms` / `policy_decision` / hash 链，且默认只在 `--audit` 时落盘。
 > v0 = 在现有钩子上补齐字段与 hash 链，并把落盘改为默认开启。
 
+v0 实现位置：daemon/audit.py + tools/audit_test.py
+
 ---
 
 ## 6. 风险登记（诚实版）

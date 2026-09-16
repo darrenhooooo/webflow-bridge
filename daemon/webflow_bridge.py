@@ -142,6 +142,16 @@ import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Phase 0.6 audit event stream v0 (docs/COMMERCIALIZATION.md §5). Local module
+# next to this file; run as a script, daemon/ is on sys.path already. The
+# try/except keeps an import as `daemon.webflow_bridge` working too.
+try:
+    import audit as audit_mod
+except ImportError:                             # pragma: no cover
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import audit as audit_mod
+
 HTTP_HOST = "127.0.0.1"
 HTTP_PORT = 10086
 WS_HOST = "127.0.0.1"
@@ -205,7 +215,15 @@ DEFAULT_TOKEN_PATH = os.path.join(DEFAULT_TOKEN_DIR, "token")
 
 AUTH_TOKEN = None            # set by load_auth_token(); None == auth disabled
 AUTH_REQUIRED = True         # --allow-no-auth flips to False
-AUDIT_PATH = None            # optional JSONL audit file (--audit)
+AUDIT_PATH = None            # optional JSONL audit file (--audit override)
+AUDIT = None                 # v0 AuditLog instance (default-on; see init_audit)
+AUDIT_SKIP_QUERIES = False   # --audit-skip-queries: omit read-only actions
+# No-side-effect queries that MAY be omitted by the switch above (default is to
+# record everything). GET /status is not dispatched as an action at all.
+AUDIT_QUERY_ACTIONS = frozenset({
+    "tabs_list", "list_downloads", "list_network_requests",
+    "list_console_messages", "get_network_request", "find_tab",
+})
 CDP_ALLOWLIST = None         # optional set/list of CDP methods (--cdp-allowlist)
 HUMANIZE = False             # --humanize: human-like pacing for every action
 # P1: native JS-dialog policy. 'auto-accept' resolves every native dialog at
@@ -340,17 +358,37 @@ def _query_token(path: str) -> str | None:
     return None
 
 
+def init_audit(path: str | None = None, enabled: bool = True,
+               skip_queries: bool = False) -> None:
+    """Create the v0 AuditLog (default-on). `path` overrides the default
+    ~/.webflow_bridge/audit/audit-YYYYMMDD.jsonl (the --audit flag).
+    fail-open: if the directory cannot be created, auditing disables itself
+    rather than taking the daemon down."""
+    global AUDIT, AUDIT_PATH
+    AUDIT_PATH = path
+    skip = AUDIT_QUERY_ACTIONS if skip_queries else ()
+    try:
+        AUDIT = audit_mod.AuditLog(path=path, enabled=enabled, skip_actions=skip)
+    except Exception as exc:                    # noqa: BLE001 (fail-open)
+        log.warning("audit init failed (fail-open): %s", exc)
+        AUDIT = None
+
+
 def audit(action: str, who: str, detail: str = "") -> None:
-    """Append one JSONL audit line (if --audit was given); always info-log."""
-    entry = {"ts": time.time(), "action": action, "who": who, "detail": detail}
+    """Record a non-dispatch event (e.g. an unauthorized HTTP request) into
+    the same hash-chained stream so the JSONL stays parseable; always
+    info-log. Fail-open, like every audit write."""
     log.info("audit action=%s who=%s%s", action, who,
              f" {detail}" if detail else "")
-    if AUDIT_PATH:
-        try:
-            with open(AUDIT_PATH, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except OSError as exc:
-            log.warning("audit write failed: %s", exc)
+    if AUDIT is None:
+        return
+    unauthorized = "unauthorized" in action
+    try:
+        AUDIT.record(action=action, actor=who, session_id="default",
+                     status="err" if unauthorized else "ok",
+                     error_code="unauthorized" if unauthorized else None)
+    except Exception as exc:                    # noqa: BLE001 (fail-open)
+        log.warning("audit write failed (fail-open): %s", exc)
 
 
 def _read_frame(conn: socket.socket):
@@ -831,20 +869,6 @@ class Bridge:
         return tab_id, None
 
     @staticmethod
-    def _audit_detail(action, args) -> str:
-        """Audit detail at action/method/url level — never code/value bodies."""
-        if not isinstance(args, dict):
-            return ""
-        parts = []
-        method = args.get("method")
-        if isinstance(method, str) and method:
-            parts.append("method=" + method)
-        url = args.get("url")
-        if isinstance(url, str) and url:
-            parts.append("url=" + url)
-        return " ".join(parts)
-
-    @staticmethod
     def _cdp_allowed(method: str) -> bool:
         """True when method passes CDP_ALLOWLIST (exact, or 'Domain.*' wild)."""
         for entry in CDP_ALLOWLIST or ():
@@ -856,6 +880,49 @@ class Bridge:
         return False
 
     def dispatch(self, payload, who: str = ""):
+        """Handle one POST /command payload -> (http_status, response_dict).
+
+        Phase 0.6: wraps `_dispatch` to time it and append exactly one audit
+        event per action (success AND failure), then returns the response
+        unchanged. Audit is fail-open and cannot alter the result; see
+        daemon/audit.py.
+        """
+        started = time.perf_counter()
+        status, body = 200, {"status": "error", "error": "internal error"}
+        try:
+            status, body = self._dispatch(payload, who)
+            return status, body
+        finally:
+            self._audit_event(payload, who, status, body,
+                              (time.perf_counter() - started) * 1000.0)
+
+    def _audit_event(self, payload, who, status, body, duration_ms) -> None:
+        """Build and write the v0 event for one dispatch call. Never raises."""
+        if AUDIT is None:
+            return
+        try:
+            action = payload.get("action") if isinstance(payload, dict) else None
+            session = payload.get("session", "default") \
+                if isinstance(payload, dict) else "default"
+            args = payload.get("args") if isinstance(payload, dict) else None
+            ok = status == 200 and isinstance(body, dict) \
+                and body.get("status") == "ok"
+            if ok:
+                error_code = None
+            elif isinstance(body, dict) and body.get("error"):
+                error_code = audit_mod.hash_error(body["error"])
+            else:
+                error_code = f"http_{status}"
+            AUDIT.record(
+                action=action if isinstance(action, str) else "?",
+                actor=who, session_id=str(session),
+                args=args if isinstance(args, dict) else None,
+                status="ok" if ok else "err", error_code=error_code,
+                duration_ms=duration_ms, policy_decision="allow")
+        except Exception as exc:                # noqa: BLE001 (fail-open)
+            log.warning("audit event failed (fail-open): %s", exc)
+
+    def _dispatch(self, payload, who: str = ""):
         """Handle one POST /command payload -> (http_status, response_dict).
 
         `who` (the HTTP client address) is passed on for audit logging; the
@@ -874,10 +941,9 @@ class Bridge:
         # stamps it onto the WS payload this request forwards.
         self._humanize_tls.on = bool(HUMANIZE) or payload.get("humanize") is True \
             or (isinstance(args, dict) and args.get("humanize") is True)
-        # P0-5: audit every action BEFORE it runs. Detail stays at the
-        # action/method/url level (never evaluate code or fill values).
-        audit(action if isinstance(action, str) else "?", who,
-              detail=self._audit_detail(action, args))
+        # P0-5: the pre-action audit() call was replaced by the dispatch
+        # wrapper (Phase 0.6), which records result/status/duration_ms after
+        # the action completes, success or failure.
 
         if action == "evaluate":
             rid = self._next_request_id()
@@ -1580,8 +1646,15 @@ def main() -> None:
                         help="disable bearer-token auth (INSECURE — migration "
                              "only for old local scripts)")
     parser.add_argument("--audit", metavar="PATH",
-                        help="append JSONL audit lines {ts,action,who,detail} "
-                             "to PATH (info-logging is always on)")
+                        help="override the audit JSONL path (default: "
+                             "~/.webflow_bridge/audit/audit-YYYYMMDD.jsonl; "
+                             "auditing is ON by default)")
+    parser.add_argument("--no-audit", action="store_true",
+                        help="disable the audit event stream (default: ON)")
+    parser.add_argument("--audit-skip-queries", action="store_true",
+                        help="omit no-side-effect read-only actions "
+                             "(tabs_list, list_downloads, ...) from the audit "
+                             "stream (default: record every action)")
     parser.add_argument("--cdp-allowlist", metavar="METHODS",
                         help="comma-separated CDP methods the cdp action may "
                              "call; 'Domain.*' allows a whole domain "
@@ -1597,8 +1670,8 @@ def main() -> None:
     opts = parser.parse_args()
     if opts.allow_no_auth:
         AUTH_REQUIRED = False
-    if opts.audit:
-        AUDIT_PATH = opts.audit
+    init_audit(path=opts.audit, enabled=not opts.no_audit,
+               skip_queries=opts.audit_skip_queries)
     if opts.cdp_allowlist:
         CDP_ALLOWLIST = [s.strip() for s in opts.cdp_allowlist.split(",")
                          if s.strip()]
