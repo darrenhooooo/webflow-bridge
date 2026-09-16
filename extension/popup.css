@@ -717,29 +717,28 @@ body {
 }
 
 /* ---------- connection toggle (Disconnect / Reconnect) ----------
- * Stable action slot in the header's top-right. Disconnect while Active; the
- * SAME slot becomes Reconnect after the user pauses — it never moves. Quiet by
- * design: transparent fill, hairline border, muted text. A real ≥44px target
- * with an aria-label (set in popup.js, i18n). Hidden (no placeholder) while
- * checking / inactive, where there is nothing to toggle. */
+ * Stable action slot in the header's top-right, now ICON-ONLY. The unplug glyph
+ * (plug + slash) while Active; the SAME slot swaps to the circular-arrow
+ * reconnect glyph after the user pauses — it never moves. Quiet by design:
+ * transparent fill, hairline border, muted ink (no colour-baseline change).
+ * A fixed 44×44 target (--tap) so the glyph can stay small while the hit area
+ * stays comfortable. aria-label + title are set in popup.js (i18n). Hidden (no
+ * placeholder) while checking / inactive, where there is nothing to toggle. */
 .conn-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: fit-content;
-  max-width: 100%;
+  width: var(--tap);
+  height: var(--tap);
+  min-width: var(--tap);
   min-height: var(--tap);
   margin: 0;
-  padding: 0 var(--sp-3);
+  padding: 0;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
   color: var(--text-muted);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: var(--fs-md);
-  font-weight: 500;
-  line-height: 1.4;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out),
@@ -748,6 +747,15 @@ body {
               transform var(--dur-fast) var(--ease-out);
   animation: riseIn var(--dur-enter) var(--ease-out) backwards;
 }
+
+/* One glyph visible per data-action (set in popup.js). */
+.conn-btn .conn-ic {
+  width: 20px;
+  height: 20px;
+  display: none;
+}
+.conn-btn[data-action="disconnect"] .conn-ic-off { display: block; }
+.conn-btn[data-action="reconnect"] .conn-ic-reconnect { display: block; }
 
 @media (hover: hover) and (pointer: fine) {
   .conn-btn:hover {

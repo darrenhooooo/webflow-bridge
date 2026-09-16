@@ -5,7 +5,8 @@
 //   missing → green Active (已激活) — click runs one real evaluate
 //   → friendly confirmation card (no title echo).
 //   neutral Disconnected (已断开) — the user paused the daemon link with the
-//   secondary button below the card; that button is then the only way back.
+//   icon toggle in the header's top-right; that same icon is then the only
+//   way back.
 // Talks to background.js over chrome.runtime messages (wf-ping /
 // wf-evaluate / wf-disconnect / wf-reconnect).
 (function () {
@@ -101,18 +102,21 @@
     updateConnBtn();
   }
 
-  // Secondary muted action under the main card. It only exists in two
-  // situations: Active → "Disconnect", user-paused → "Reconnect". While
-  // checking / inactive it is hidden entirely (the poll and the wizard are
-  // the story there) — no empty placeholder is left behind.
+  // Connection toggle (icon-only, header top-right). It only exists in two
+  // situations: Active → the unplug glyph (wf-disconnect); user-paused → the
+  // circular-arrow glyph (wf-reconnect). While checking / inactive it is hidden
+  // entirely (no placeholder). The label feeds BOTH aria-label (screen readers,
+  // always present) and title (hover tooltip; absent on touch — aria-label
+  // still covers it); both come from the same i18n key.
   function updateConnBtn() {
-    let label = '';
-    if (suspended) label = T('reconnect');
-    else if (state === 'active') label = T('disconnect');
-    if (label) {
-      connBtn.textContent = label;
-      // Visible text + matching aria-label, both from the same i18n key.
+    let key = '';
+    if (suspended) key = 'reconnect';
+    else if (state === 'active') key = 'disconnect';
+    if (key) {
+      const label = T(key);
+      connBtn.dataset.action = key;         // CSS picks the matching glyph
       connBtn.setAttribute('aria-label', label);
+      connBtn.title = label;
       connBtn.classList.remove('hidden');
     } else {
       connBtn.classList.add('hidden');

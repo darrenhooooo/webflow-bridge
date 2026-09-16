@@ -8,15 +8,31 @@
 </head>
 <body>
   <!-- Header: logo + title + the stable connection action slot (top-right).
-       Disconnect while Active; the same slot flips to Reconnect after the user
-       pauses — it never moves. The version is no longer a header chip: static
-       metadata is not an action, so it lives in the footer below. -->
+       Icon-only button: the unplug glyph while Active (wf-disconnect), the same
+       slot flips to the circular-arrow reconnect glyph after the user pauses —
+       it never moves. Label/tooltip live in popup.js (aria-label + title, both
+       from i18n: disconnect / reconnect). The version is no longer a header
+       chip: static metadata is not an action, so it lives in the footer. -->
   <header class="head">
     <img class="logo" src="assets/icons/icon128.png"
          alt="Webflow Bridge logo" width="20" height="20" draggable="false">
     <h1 class="title">Webflow Bridge</h1>
-    <button id="connBtn" type="button" class="conn-btn hidden"
-            aria-label="Disconnect">Disconnect</button>
+    <!-- Two glyphs, one visible: data-action is set in popup.js. Both icons use
+         the repo's inline-SVG language (24 viewBox, currentColor, round caps). -->
+    <button id="connBtn" type="button" class="conn-btn hidden" data-action="disconnect">
+      <svg class="conn-ic conn-ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 3.5v4"/><path d="M15 3.5v4"/>
+        <path d="M7 7.5h10v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5v-3Z"/>
+        <path d="M12 15.5v5"/>
+        <path d="M3.5 3.5l17 17"/>
+      </svg>
+      <svg class="conn-ic conn-ic-reconnect" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 12a8 8 0 1 1-2.4-5.7"/>
+        <path d="M20 4v4h-4"/>
+      </svg>
+    </button>
   </header>
 
   <!-- Main card = the whole-card status display (整卡状态显示器). role=button /
