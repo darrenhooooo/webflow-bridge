@@ -60,7 +60,7 @@ with `wf_tabs_list`). The daemon base URL can be overridden with the
 ## Setup & feasibility verification
 
 ```bash
-cd C:/Users/darre/webflow/mcp
+cd <PROJECT>/mcp
 uv sync --python 3.11        # creates .venv with mcp>=1.2,<2 (FastMCP 1.x API)
 ```
 
@@ -102,10 +102,10 @@ macOS/Linux: command: "<PROJECT>/mcp/.venv/bin/python"
              args: ["<PROJECT>/mcp/mcp_server.py"]
 ```
 
-In every snippet below, **`<PROJECT>` is the repo root** — on the machine this
-guide was written on, `C:/Users/darre/webflow` (Windows). Substitute your own
-clone path on any OS. The forward-slash form (`<PROJECT>/mcp`) is valid in
-JSON, YAML and TOML on Windows too (see the adaptability matrix below).
+In every snippet below, **`<PROJECT>` is the path to your clone's root**.
+Substitute your own clone path on any OS. The forward-slash form
+(`<PROJECT>/mcp`) is valid in JSON, YAML and TOML on Windows too (see the
+adaptability matrix below).
 
 **Prerequisite for every client**: the Webflow Bridge daemon is running on
 `127.0.0.1:10086` with a Chrome/Edge extension connected (see the repo
@@ -140,7 +140,7 @@ Notes:
   `mcp_webflow_wf_tabs_activate`.
 - Paths: the examples use forward slashes (`<PROJECT>/mcp`), which work fine in
   YAML on Windows. If you prefer backslashes they must be escaped in YAML, e.g.
-  `C:\\Users\\darre\\webflow\\mcp`. Forward slashes avoid the whole class of
+  `C:\\path\\to\\webflow-bridge\\mcp`. Forward slashes avoid the whole class of
   escaping bugs — prefer them.
 - If `uv` is not on the PATH Hermes spawns with, use Block B
   (`<PROJECT>/mcp/.venv/Scripts/python.exe` on Windows,
@@ -310,7 +310,7 @@ Notes:
   repo's `mcp/` directory wherever you cloned it. The `.venv` is
   per-machine, so re-run `uv sync` after moving the repo.
 - If Claude Desktop can't find `uv` (spawned via a shell without uv on PATH),
-  use Block B: `command: "C:/Users/darre/webflow/mcp/.venv/Scripts/python.exe"`
+  use Block B: `command: "<PROJECT>/mcp/.venv/Scripts/python.exe"`
   on Windows / `"<PROJECT>/mcp/.venv/bin/python"` on macOS/Linux, with
   `args: ["<PROJECT>/mcp/mcp_server.py"]`.
 
@@ -377,9 +377,9 @@ Notes:
   `startup_timeout_sec` to `30` (the Codex snippet above already does). Block B
   (venv interpreter) boots in well under a second if your client cannot raise
   its timeout.
-- **`<PROJECT>` is your repo root** — `C:/Users/darre/webflow` on the machine
-  this guide was written on. The `mcp/.venv` is per-machine: created by
-  `uv sync` inside `mcp/`, re-run it after moving the repo.
+- **`<PROJECT>` is the path to your clone's root.** The `mcp/.venv` is
+  per-machine: created by `uv sync` inside `mcp/`, re-run it after moving the
+  repo.
 
 ## Troubleshooting
 

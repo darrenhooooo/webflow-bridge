@@ -1,6 +1,7 @@
 """Audit event stream v0 — append-only JSONL with a sha256 hash chain.
 
-Implementing docs/COMMERCIALIZATION.md §5 (Phase 0.6). Pure stdlib.
+Implementing Phase 0.6 audit event stream v0 (internal roadmap §5; that doc is
+kept out of the repo). Pure stdlib.
 
 Privacy red lines (see §5):
   * Raw action params and page content NEVER enter the audit file. Params are

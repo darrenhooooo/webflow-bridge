@@ -28,7 +28,7 @@ const PLATFORM = String((navigator.userAgentData && navigator.userAgentData.plat
                         navigator.platform || '');
 const IS_WIN = /^win/i.test(PLATFORM);
 const DAEMON_CMD = IS_WIN
-  ? 'C:/Users/darre/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe ff/daemon/ff_bridge.py'
+  ? 'py -3.11 ff/daemon/ff_bridge.py'
   : 'python3 ff/daemon/ff_bridge.py';
 const DAEMON_UV_CMD = 'uv run --python 3.11 ff/daemon/ff_bridge.py';
 const FF_LAUNCH_CMD = IS_WIN ? 'ff\\ff-launch.bat' : 'ff/ff-launch.sh';
@@ -51,7 +51,7 @@ const GUIDE_STEP_KEYS = {
 // 引导卡 / 启动指引里出现代码与路径处用占位符注入（值都是常量，非文案）。
 function guideVars() {
   return {
-    repo: 'C:/Users/darre/Desktop/webflow',
+    repo: '<PROJECT>',
     dcmd: DAEMON_CMD,
     dcmd_unix: 'python3 ff/daemon/ff_bridge.py',
     uv: DAEMON_UV_CMD,
@@ -896,7 +896,7 @@ function renderStartupGuide() {
     ol.appendChild(li);
   }
   const p = $('ext-desc');
-  if (p) p.innerHTML = T('ext_desc', { doc: 'C:/Users/darre/Desktop/webflow/ff/README.md' });
+  if (p) p.innerHTML = T('ext_desc', { doc: '<PROJECT>/ff/README.md' });
 }
 
 async function init() {

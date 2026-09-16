@@ -54,7 +54,7 @@ Firefox 进程在但 9222 未监听 → 提示先关闭 Firefox（单实例限�
 
 ```bash
 # Windows 请用真实 Python 3.11+（不是 Microsoft Store 假桩），例如：
-C:/Users/darre/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe ff/daemon/ff_bridge.py
+py -3.11 ff/daemon/ff_bridge.py
 # 或 uv run --python 3.11 ff/daemon/ff_bridge.py
 ```
 

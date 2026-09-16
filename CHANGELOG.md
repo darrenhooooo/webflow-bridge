@@ -234,10 +234,10 @@ Both Chrome/Edge (extension/) and Firefox companion (ff/) updated in sync.
 - 能力对等终核：Firefox 覆盖公开协议动作集 100%（24 动作，含 2 项平台物理
   不支持项 cdp / handle_file_chooser 明确报错并引导替代）
 - 已知差异（不阻塞）：Chrome 版另有 5 个未文档化扩展面动作
-  （drop / fill_form / submit / wait_for / resize_page，gplp 流程专用），
+  （drop / fill_form / submit / wait_for / resize_page，特定流程专用），
   Firefox 版未实现，按需后续对齐
 - 双 daemon 并存回归 09-08 全绿：Chrome smoke 6/6 + Firefox P0 4/4 +
-  P1 13/13 + P2 13/13 同机并存；X/LI 44/44 全流程由 gplp 日常发布覆盖
+  P1 13/13 + P2 13/13 同机并存；X/LI 44/44 全流程由日常发布覆盖
 - 上架就绪：CWS STORE_LISTING / AMO README_AMO + dist zip 产物
   webflow-bridge-1.0.0.zip（rebuild_zip.py）
 

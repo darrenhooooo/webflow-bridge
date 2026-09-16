@@ -25,9 +25,7 @@ line only — older versions should upgrade to the latest release.
 ## Security posture (as implemented)
 
 Webflow Bridge is local-only by design. The posture below is what the code
-actually does — for the threat model behind it, see
-[docs/ANTI_ABUSE_PLAN.md](docs/ANTI_ABUSE_PLAN.md); for data handling,
-[docs/PRIVACY.md](docs/PRIVACY.md).
+actually does — for data handling, see [docs/PRIVACY.md](docs/PRIVACY.md).
 
 - **Loopback only.** The daemon binds `127.0.0.1` — HTTP `:10086` and
   WS `:10087` for Chrome/Edge, HTTP `:10096` for the Firefox edition.

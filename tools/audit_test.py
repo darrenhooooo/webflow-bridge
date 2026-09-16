@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 0.6 audit event stream v0 — acceptance tests (docs/COMMERCIALIZATION.md §5).
+"""Phase 0.6 audit event stream v0 — acceptance tests (internal roadmap §5; doc not in repo).
 
 Standalone stdlib-only; run:  python3 tools/audit_test.py
 

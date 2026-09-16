@@ -73,7 +73,7 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
   - 若无防护：ff-launch 增加前置检查（确认 9222 仅 127.0.0.1 监听）+ README 安全说明；必要时引导 Firefox 用 `remote.force-local` 类设置（Firefox remote agent 有 local-only 默认，需实测确认）。
 - **指纹如实告知**：`navigator.webdriver=true` 无法关闭，README 明示；产品定位「自动化自己已登录站点」，不承诺反爬。
 
-## 4. 分阶段实施（pi 执行口径）
+## 4. 分阶段实施（执行口径）
 
 | 阶段 | 内容 | 验证标准 | 状态 |
 |---|---|---|
@@ -102,14 +102,14 @@ script → POST :10096 → ff_daemon → BiDi ws://127.0.0.1:9222/session → Fi
 - 合规：AMO companion 薄附加组件低风险；核心 daemon 不开源上架（本地工具），companion 源码可审。
 - 回退：Chrome/Edge 版零改动；Firefox 版独立目录独立端口，删除即干净。
 
-## 7. 验收清单（darren 审）
+## 7. 验收清单
 
 - [x] ff-launch 用真实日常 profile 打开 Firefox，登录态可见（09-08 多次 smoke 实证
       default-release 真实 profile，规则1 Install 段命中）
 - [x] ff daemon 能驱动该 Firefox 完成 evaluate/navigate/click/fill 基础闭环
       （P0/P1/P2 smoke 全绿：ff_smoke 4/4 + ff_p1_smoke 13/13 + ff_p2_smoke 13/13）
 - [x] Chrome 版零回退（双 daemon 并存回归 09-08：Chrome smoke 6/6 + Firefox 全套
-      同机并存全绿；X/LI 44/44 全流程属 gplp 日常发布覆盖）
+      同机并存全绿；X/LI 44/44 全流程属日常发布覆盖）
 - [x] companion 附加组件 AMO 就绪（manifest/图标/隐私/源码可审，README_AMO.md）
       （加载到 Firefox 的 UI 实测待 P4 上架前进行）
 - [x] README 明确 Firefox 支持范围、指纹限制、安装三步（ff/README.md 完整版

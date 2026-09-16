@@ -5,7 +5,7 @@ client is built on — end to end through the real daemon.
 Run with the mcp project venv python (this file imports `mcp`, which is NOT
 installed in the shared uv python):
 
-    cd C:/Users/darre/webflow
+    cd <PROJECT>
     mcp/.venv/Scripts/python.exe tools/mcp_smoke.py     (Windows)
     mcp/.venv/bin/python tools/mcp_smoke.py             (macOS/Linux)
 
