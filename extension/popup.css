@@ -143,12 +143,16 @@ body {
   color: var(--text);
 }
 
+/* Version = static metadata in the footer, deliberately not a chip/action.
+   Reason: it never does anything, so it must not compete with the real
+   connection action that now owns the header's top-right slot. */
+.foot {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-2) 0 var(--sp-1);
+}
+
 .version {
-  padding: var(--sp-1) var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  box-shadow: var(--highlight);
   color: var(--text-muted);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
@@ -235,8 +239,23 @@ body {
 }
 .main-card[data-state="checking"] .si-spin { display: block; animation: spin 900ms linear infinite; }
 .main-card[data-state="inactive"] .si-warn,
-.main-card[data-state="active"] .si-check,
 .main-card[data-state="disconnected"] .si-off { display: block; }
+
+/* active — white breathing disc (the live-channel pulse, restored from
+   88ce764^). No static checkmark: the state word + this breath are the
+   non-colour cue, and the disc survives reduced-motion as a still circle. */
+.main-card[data-state="active"] .state-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--card-active-ink);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+  animation: dotBreath 2.8s ease-in-out 600ms infinite;
+}
 
 /* Expanding halo ring — the authored motion moment. Pseudo-element keeps the
    animation off the layout box and out of the text path. */
@@ -372,6 +391,12 @@ body {
 @keyframes dotHalo {
   0%   { transform: scale(1);   opacity: 0.8; }
   100% { transform: scale(2.8); opacity: 0; }
+}
+
+/* Slow "live channel" breathing on the active disc. */
+@keyframes dotBreath {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.62; }
 }
 
 @keyframes riseIn {
@@ -534,10 +559,11 @@ body {
   font: var(--fs-sm)/1.5 var(--mono);
   color: var(--text);
   /* Keep the command on one line: it overflows and scrolls horizontally rather
-     than breaking mid-word (the copied string is always the full command). */
+     than breaking mid-word (the copied string is always the full command).
+     No scrollbar-width here: that would hand Chromium the overlay scrollbar
+     and disable the ::-webkit-scrollbar rule below (the always-visible hint). */
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
   box-sizing: border-box;
   box-shadow: inset 0 1px 2px rgba(60, 64, 67, 0.06);
   transition: border-color var(--dur-fast) var(--ease-out),
@@ -551,11 +577,29 @@ body {
   white-space: pre;
 }
 
+/* "there is more command here" hint: an edge fade, shown only while the box
+   actually has content to the right (popup.js toggles .is-scrollable and
+   clears it at the end). Fades to the code box's own background, and stops
+   short of the copy button. */
+.wiz-cmd::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  right: var(--tap);
+  width: 26px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to right, transparent, var(--bg));
+}
+.wiz-cmd.is-scrollable::after { opacity: 1; }
+
 .wiz-cmd .copy-btn {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
+  z-index: 1;   /* above the scroll-fade hint */
   width: var(--tap);
   padding: 0;
   display: flex;
@@ -673,18 +717,21 @@ body {
 }
 
 /* ---------- connection toggle (Disconnect / Reconnect) ----------
- * Secondary muted action centred right below the main card. Quiet by design:
- * transparent fill, hairline border, muted small text — it never competes
- * with the card above. Hidden (no placeholder) unless it has a job. */
+ * Stable action slot in the header's top-right. Disconnect while Active; the
+ * SAME slot becomes Reconnect after the user pauses — it never moves. Quiet by
+ * design: transparent fill, hairline border, muted text. A real ≥44px target
+ * with an aria-label (set in popup.js, i18n). Hidden (no placeholder) while
+ * checking / inactive, where there is nothing to toggle. */
 .conn-btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: fit-content;
   max-width: 100%;
   min-height: var(--tap);
-  margin: var(--sp-2) auto 0;
-  padding: 0 var(--sp-4);
+  margin: 0;
+  padding: 0 var(--sp-3);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
@@ -746,19 +793,27 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
+/* Chromium on Windows/Linux renders this as a classic, always-visible bar;
+   macOS keeps its overlay bar, which is why popup.js also draws the edge fade
+   above — so the box never looks truncated on any platform. The copied string
+   is always the full command. */
 .result::-webkit-scrollbar,
-.wiz-rawerr::-webkit-scrollbar { width: 8px; height: 8px; }
+.wiz-rawerr::-webkit-scrollbar,
+.wiz-cmd code::-webkit-scrollbar { width: 8px; height: 8px; }
 .result::-webkit-scrollbar-thumb,
-.wiz-rawerr::-webkit-scrollbar-thumb {
+.wiz-rawerr::-webkit-scrollbar-thumb,
+.wiz-cmd code::-webkit-scrollbar-thumb {
   background-color: var(--border-strong);
   background-clip: padding-box;
   border: 2px solid transparent;
   border-radius: var(--r-pill);
 }
 .result::-webkit-scrollbar-thumb:hover,
-.wiz-rawerr::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); }
+.wiz-rawerr::-webkit-scrollbar-thumb:hover,
+.wiz-cmd code::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); }
 .result::-webkit-scrollbar-track,
-.wiz-rawerr::-webkit-scrollbar-track { background: transparent; }
+.wiz-rawerr::-webkit-scrollbar-track,
+.wiz-cmd code::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------- keyframes ---------- */
 
@@ -817,6 +872,8 @@ html[dir="rtl"] textarea {
   .main-card[data-state="checking"] .state-icon::after,
   .main-card[data-state="inactive"] .state-icon::after,
   .main-card[data-state="active"] .state-icon::after { animation: none; opacity: 0; }
+  /* The active disc stops breathing but stays visible (never opacity: 0). */
+  .main-card[data-state="active"] .state-icon::before { animation: none; }
   .main-card[data-state="checking"] .si-spin { animation: none; }
   .wiz-row[data-state="busy"] .wiz-icon { animation: none; }
   .wiz-row[data-state="ok"] .wiz-icon svg path,

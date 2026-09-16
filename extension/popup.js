@@ -106,11 +106,13 @@
   // checking / inactive it is hidden entirely (the poll and the wizard are
   // the story there) — no empty placeholder is left behind.
   function updateConnBtn() {
-    if (suspended) {
-      connBtn.textContent = T('reconnect');
-      connBtn.classList.remove('hidden');
-    } else if (state === 'active') {
-      connBtn.textContent = T('disconnect');
+    let label = '';
+    if (suspended) label = T('reconnect');
+    else if (state === 'active') label = T('disconnect');
+    if (label) {
+      connBtn.textContent = label;
+      // Visible text + matching aria-label, both from the same i18n key.
+      connBtn.setAttribute('aria-label', label);
       connBtn.classList.remove('hidden');
     } else {
       connBtn.classList.add('hidden');
@@ -182,11 +184,27 @@
   // dynamic (raw daemon errors) is always rendered via textContent.
   // ------------------------------------------------------------------
 
+  // Row title = check name + its OWN state, so no row ever contradicts the
+  // banner above ("Daemon running" next to a red cross was the bug):
+  //   ok      -> the ready wording (row_daemon / row_ext / row_page)
+  //   bad     -> names the failure (row_<key>_bad)
+  //   pending / busy -> plain check name; the note below says why it waits.
   const ROW_NAMES = {
     daemon: T('row_daemon'),
     ext: T('row_ext'),
     page: T('row_page'),
   };
+  const ROW_ITEMS = {
+    daemon: T('item_daemon'),
+    ext: T('item_ext'),
+    page: T('item_page'),
+  };
+
+  function rowLabel(key, rowState) {
+    if (rowState === 'bad') return T('row_' + key + '_bad');
+    if (rowState === 'ok') return ROW_NAMES[key];
+    return ROW_ITEMS[key];
+  }
 
   function rowIcon(rowState) {
     if (rowState === 'ok') {
@@ -251,7 +269,7 @@
     return fix;
   }
 
-  function addRow(name, rowState, fix) {
+  function addRow(key, rowState, fix) {
     const li = document.createElement('li');
     li.className = 'wiz-row';
     li.dataset.state = rowState;
@@ -264,7 +282,7 @@
     icon.innerHTML = rowIcon(rowState);
     const label = document.createElement('span');
     label.className = 'wiz-name';
-    label.textContent = name;
+    label.textContent = rowLabel(key, rowState);
     line.appendChild(icon);
     line.appendChild(label);
     li.appendChild(line);
@@ -306,6 +324,7 @@
           row.appendChild(code);
           row.appendChild(btn);
           box.appendChild(row);
+          wireCmdScroll(row);
         } else if (item.type === 'note') {
           const el = document.createElement('div');
           el.className = 'wiz-note';
@@ -367,7 +386,7 @@
     for (const key of ['ext', 'daemon', 'page']) {
       const r = rows[key];
       if (!r) continue;
-      addRow(ROW_NAMES[key], r.state,
+      addRow(key, r.state,
              r.fix || (r.note ? [{ type: 'note', text: r.note }] : null));
     }
   }
@@ -391,6 +410,21 @@
     try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
     ta.remove();
     return ok;
+  }
+
+  // Command box scroll hint: show the edge fade only while there is content
+  // off-screen, and clear it once the user has scrolled to the end. The copied
+  // string is always the full command regardless of scroll state.
+  function wireCmdScroll(row) {
+    const code = row.querySelector('code');
+    if (!code) return;
+    const sync = () => {
+      const atEnd = code.scrollLeft + code.clientWidth >= code.scrollWidth - 1;
+      row.classList.toggle('is-scrollable',
+                           code.scrollWidth > code.clientWidth + 1 && !atEnd);
+    };
+    code.addEventListener('scroll', sync, { passive: true });
+    requestAnimationFrame(sync);
   }
 
   async function copyCmd(btn) {
@@ -497,7 +531,7 @@
     // Two-row checklist by default — the page row is only born on a real
     // drive failure below, so a normal diagnosis never flashes it.
     for (const key of ['ext', 'daemon']) {
-      addRow(ROW_NAMES[key], 'busy', null);
+      addRow(key, 'busy', null);
     }
 
     const st = await refreshPing();

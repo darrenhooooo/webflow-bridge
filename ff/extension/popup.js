@@ -125,11 +125,27 @@ let actBusy = false;     // 验证/诊断在途：保持 Checking… 且不可�
 
 /* ---------- 激活清单（方案A）行内容 ---------- */
 
+// 行标题 = 检查项名 + 该项自身状态，避免与上方横幅打架（曾经出现：红叉行
+// 标题却写「Daemon running」）：
+//   ok      → 就绪文案（row_daemon / row_ext / row_page）
+//   bad     → 直接写失败（row_<key>_bad）
+//   pending / busy → 纯检查项名；下面的 note 说明为什么还要等。
 const ROW_NAMES = {
   daemon: T('row_daemon'),
   ext: T('row_ext'),
   page: T('row_page'),
 };
+const ROW_ITEMS = {
+  daemon: T('item_daemon'),
+  ext: T('item_ext'),
+  page: T('item_page'),
+};
+
+function rowLabel(key, rowState) {
+  if (rowState === 'bad') return T('row_' + key + '_bad');
+  if (rowState === 'ok') return ROW_NAMES[key];
+  return ROW_ITEMS[key];
+}
 
 function rowIcon(rowState) {
   if (rowState === 'ok') {
@@ -241,10 +257,25 @@ function makeCmdBox(cmd) {
   code.appendChild(text);
   box.appendChild(code);
   box.appendChild(makeCopyBtn(cmd));
+  wireCmdScroll(box);
   return box;
 }
 
-function addRow(name, rowState, fix) {
+// 命令块滚动提示：仅在确有内容溢出时显示边缘渐隐，滚到末尾即撤掉。
+// 复制出来的始终是完整命令，与滚动位置无关。
+function wireCmdScroll(row) {
+  const code = row.querySelector('code');
+  if (!code) return;
+  const sync = () => {
+    const atEnd = code.scrollLeft + code.clientWidth >= code.scrollWidth - 1;
+    row.classList.toggle('is-scrollable',
+                         code.scrollWidth > code.clientWidth + 1 && !atEnd);
+  };
+  code.addEventListener('scroll', sync, { passive: true });
+  requestAnimationFrame(sync);
+}
+
+function addRow(key, rowState, fix) {
   const li = document.createElement('li');
   li.className = 'wiz-row';
   li.dataset.state = rowState;
@@ -257,7 +288,7 @@ function addRow(name, rowState, fix) {
   icon.innerHTML = rowIcon(rowState);
   const label = document.createElement('span');
   label.className = 'wiz-name';
-  label.textContent = name;
+  label.textContent = rowLabel(key, rowState);
   line.appendChild(icon);
   line.appendChild(label);
   li.appendChild(line);
@@ -297,7 +328,7 @@ function renderRows(rows) {
   // 行序：扩展已就绪(ext) → daemon → 当前标签页(page)。
   for (const key of ['ext', 'daemon', 'page']) {
     const r = rows[key];
-    addRow(ROW_NAMES[key], r.state,
+    addRow(key, r.state,
            r.fix || (r.note ? [{ type: 'note', text: r.note }] : null));
   }
 }
@@ -539,7 +570,7 @@ async function runDiagnosis(evHint, reason) {
   list.textContent = '';
   // busy 占位行序与 renderRows 一致（ext 最上）。
   for (const key of ['ext', 'daemon', 'page']) {
-    addRow(ROW_NAMES[key], 'busy', null);
+    addRow(key, 'busy', null);
   }
 
   const tk = await fetchConfig();

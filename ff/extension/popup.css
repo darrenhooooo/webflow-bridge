@@ -189,6 +189,12 @@ html, body {
   100% { transform: scale(2.8); opacity: 0; }
 }
 
+/* 已激活圆的缓慢「活链路」呼吸。 */
+@keyframes dotBreath {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.62; }
+}
+
 @keyframes riseIn {
   from { opacity: 0; transform: translateY(5px); }
 }
@@ -260,8 +266,23 @@ html, body {
   display: none;
 }
 #mainCard[data-state="checking"] .si-spin { display: block; animation: spin 900ms linear infinite; }
-#mainCard[data-state="inactive"] .si-warn,
-#mainCard[data-state="active"] .si-check { display: block; }
+#mainCard[data-state="inactive"] .si-warn { display: block; }
+
+/* 已激活 —— 白色呼吸圆（从 88ce764^ 取回，替代对勾）。绿色底上的白点
+   缓慢明暗呼吸：状态词 + 呼吸本身承担不依赖颜色的区分；reduced-motion
+   下呼吸停止，圆的 opacity 保持 1，仍然可见。 */
+#mainCard[data-state="active"] .state-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--card-active-ink);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+  animation: dotBreath 2.8s ease-in-out 600ms infinite;
+}
 
 #mainCard .state-icon::after {
   content: "";
@@ -692,6 +713,21 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   min-width: 0;   /* 让容器收窄，代码框内部横向滚动 */
 }
 
+/* 「后面还有命令」提示：仅在确有内容溢出时显示边缘渐隐（popup.js 切换
+   .is-scrollable，滚到末尾即撤掉）。渐隐到代码框自身底色，且止于复制按钮之前。 */
+.wiz-cmd::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  right: var(--tap);
+  width: 26px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to right, transparent, var(--bg));
+}
+.wiz-cmd.is-scrollable::after { opacity: 1; }
+
 .wiz-cmd code {
   display: flex;
   align-items: center;
@@ -709,6 +745,7 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
   transition: border-color var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
 }
@@ -724,6 +761,7 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   top: 0;
   right: 0;
   bottom: 0;
+  z-index: 1;   /* 高于滚动渐隐提示 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
