@@ -142,7 +142,7 @@ import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# Phase 0.6 audit event stream v0 (docs/COMMERCIALIZATION.md §5). Local module
+# Phase 0.6 audit event stream v0 (internal roadmap §5; doc not in repo). Local module
 # next to this file; run as a script, daemon/ is on sys.path already. The
 # try/except keeps an import as `daemon.webflow_bridge` working too.
 try:
@@ -1635,6 +1635,7 @@ class CommandHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     global AUTH_REQUIRED, AUTH_TOKEN, AUDIT_PATH, CDP_ALLOWLIST, HUMANIZE
+    global HTTP_PORT, WS_PORT
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s")
     # P0-4: CLI switches — auth is ON by default; opt out explicitly.
@@ -1667,7 +1668,22 @@ def main() -> None:
                              "(alert/confirm/prompt/beforeunload): leave them "
                              "pending for the explicit handle_dialog action "
                              "(default: auto-accept)")
+    # Port overrides exist so a second instance (installer self-check, isolated
+    # tests) can run alongside a production daemon. Defaults are unchanged.
+    parser.add_argument("--http-port", type=int, default=HTTP_PORT,
+                        metavar="PORT",
+                        help=f"HTTP port (default: {HTTP_PORT})")
+    parser.add_argument("--ws-port", type=int, default=WS_PORT,
+                        metavar="PORT",
+                        help=f"WebSocket port (default: {WS_PORT})")
     opts = parser.parse_args()
+    if opts.http_port != HTTP_PORT:
+        HTTP_PORT = opts.http_port
+        ALLOWED_ORIGINS.clear()
+        ALLOWED_ORIGINS.update({f"http://127.0.0.1:{HTTP_PORT}",
+                                f"http://localhost:{HTTP_PORT}"})
+    if opts.ws_port != WS_PORT:
+        WS_PORT = opts.ws_port
     if opts.allow_no_auth:
         AUTH_REQUIRED = False
     init_audit(path=opts.audit, enabled=not opts.no_audit,

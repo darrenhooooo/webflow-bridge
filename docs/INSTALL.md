@@ -9,6 +9,60 @@ want the shortest path, the README install section is enough.
 
 ## English
 
+### Install (one command — no Python required)
+
+The daemon is frozen into a single self-contained executable, so the target
+machine does **not** need Python. Get `webflow-bridge-daemon-<version>-<os>`
+from the release, or build it once on the matching OS:
+
+```bash
+python3.11 tools/build_standalone.py     # -> dist/webflow-bridge-daemon-*-macos
+```
+
+**macOS** — copies the daemon into `~/Library/Application Support/WebflowBridge/`,
+writes a launchd LaunchAgent (auto-starts at login), bootstraps it, then
+self-checks `GET /status` before reporting success:
+
+```bash
+./tools/install_macos.sh
+./tools/uninstall_macos.sh            # keeps ~/.webflow_bridge (token + audit)
+./tools/uninstall_macos.sh --purge    # also deletes token + audit
+```
+
+Both scripts are idempotent: re-running install replaces the single agent and
+re-registers exactly one plist; re-running uninstall on a clean machine is a
+no-op.
+
+**Windows** *(scripts not yet executed on a Windows host — see the checklist
+at the end of this section)* — copies the daemon into
+`%LOCALAPPDATA%\WebflowBridge\` and registers a per-user logon **Scheduled
+Task** (chosen over a Service: no admin, no service account, same user-level
+semantics as the macOS agent):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install_windows.ps1
+powershell -ExecutionPolicy Bypass -File tools\uninstall_windows.ps1 [-Purge]
+```
+
+A double-click `.pkg` / `.dmg` / `.msi` wrapper is **not** shipped yet — it is
+blocked on code-signing / notarization (Phase 0 risk register). The
+one-command scripts above are the supported install path.
+
+After the daemon is installed, load the extension manually (next section) —
+nothing is ever auto-installed into the browser.
+
+The installer flow has an isolated acceptance test (temporary HOME + a
+non-production launchd label + throwaway ports; never touches the real
+`~/.webflow_bridge` or the production agent):
+
+```bash
+python3.11 tools/installer_test.py
+```
+
+---
+
+## From source (developers)
+
 ### Requirements
 
 - **Python 3.11+** for the daemon. Everything is stdlib — no `pip install`.
@@ -185,7 +239,76 @@ Full launcher / auth / action-matrix detail: **[../ff/README.md](../ff/README.md
 
 ---
 
+### Windows verification checklist (scripts not yet run on Windows)
+
+`tools/install_windows.ps1` / `tools/uninstall_windows.ps1` were authored on
+macOS and have never been executed on Windows. Before shipping, run all of the
+following on a clean Windows 10/11 VM **without Python installed**:
+
+1. Build `dist/webflow-bridge-daemon-<version>-windows.exe` on Windows via
+   `python tools\build_standalone.py` (PyInstaller does not cross-compile).
+2. `install_windows.ps1` succeeds; `%LOCALAPPDATA%\WebflowBridge\` holds the
+   exe; `Get-ScheduledTask -TaskName WebflowBridgeDaemon` shows Ready/Running.
+3. `GET http://127.0.0.1:10086/status` returns `{"status":"ok",...}`; the
+   extension popup shows Active.
+4. Sign out / reboot → the task starts the daemon automatically at logon.
+5. Re-run install → idempotent: exactly one task, still one listener.
+6. `uninstall_windows.ps1` → task unregistered, folder removed, port closed,
+   `%USERPROFILE%\.webflow_bridge` kept; `-Purge` removes it too.
+7. Self-contained runtime: launch the exe from a shell with Python removed from
+   `PATH` → still starts.
+8. SmartScreen/AV: an unsigned exe may warn; re-verify once the EV certificate
+   is in place.
+
+---
+
 ## 中文
+
+### 安装（一条命令 —— 无需 Python）
+
+daemon 已被冻结成单个自包含可执行文件，**目标机器无需安装 Python**。从发布页取
+`webflow-bridge-daemon-<version>-<os>`，或在对应系统上构建一次：
+
+```bash
+python3.11 tools/build_standalone.py     # -> dist/webflow-bridge-daemon-*-macos
+```
+
+**macOS** —— 拷入 `~/Library/Application Support/WebflowBridge/`，写 launchd
+LaunchAgent（登录自启），`bootstrap` 后自检 `GET /status` 才报告成功：
+
+```bash
+./tools/install_macos.sh
+./tools/uninstall_macos.sh            # 保留 ~/.webflow_bridge（token + audit）
+./tools/uninstall_macos.sh --purge    # 连同 token + audit 一起删
+```
+
+两个脚本都幂等：重复安装替换同一个 agent、只注册一份 plist；在干净机器上重复卸载
+是无操作。
+
+**Windows**（脚本**未在 Windows 机器上实测** —— 见本节末尾清单）—— 拷入
+`%LOCALAPPDATA%\WebflowBridge\`，注册**每用户登录计划任务**（选计划任务而非服务：
+无需管理员、无需服务账户，与 macOS agent 的用户级语义一致）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install_windows.ps1
+powershell -ExecutionPolicy Bypass -File tools\uninstall_windows.ps1 [-Purge]
+```
+
+双击的 `.pkg` / `.dmg` / `.msi` 包装**尚未提供** —— 卡在代码签名 / 公证（Phase 0
+风险登记）。上面的一条命令脚本是当前受支持的安装路径。
+
+装好 daemon 后仍需手动加载扩展（见下节）—— 永不向浏览器自动安装任何东西。
+
+安装流程带隔离验收测试（临时 HOME + 非生产 launchd label + 随机端口；绝不动真实
+`~/.webflow_bridge` 与生产 agent）：
+
+```bash
+python3.11 tools/installer_test.py
+```
+
+---
+
+## 从源码运行（开发者）
 
 ### 环境要求
 
@@ -339,7 +462,26 @@ Token：`~/.webflow_bridge_ff/token`（`0600`），或环境变量 `WBF_FF_TOKEN
 4. 删除本地状态：`rm -rf ~/.webflow_bridge ~/.webflow_bridge_ff`。
 5. 不再需要时删除仓库目录。全程不触碰任何 profile、注册表或系统文件。
 
-### 故障排查
+#### Windows 上线前验证清单（脚本未在 Windows 实测）
+
+`tools/install_windows.ps1` / `tools/uninstall_windows.ps1` 在 macOS 上编写，
+从未在 Windows 上执行。上线前请在未装 Python 的干净 Windows 10/11 虚拟机上逐项验证：
+
+1. 在 Windows 上 `python tools\build_standalone.py` 生成
+   `dist/webflow-bridge-daemon-<version>-windows.exe`（PyInstaller 不能交叉编译）。
+2. `install_windows.ps1` 成功；`%LOCALAPPDATA%\WebflowBridge\` 有 exe；
+   `Get-ScheduledTask -TaskName WebflowBridgeDaemon` 显示 Ready/Running。
+3. `GET http://127.0.0.1:10086/status` 返回 `{"status":"ok",...}`；扩展 popup 显示 Active。
+4. 注销 / 重启 → 登录时任务自动拉起 daemon。
+5. 重复安装 → 幂等：只有一个任务、仍只有一个监听。
+6. `uninstall_windows.ps1` → 任务注销、目录删除、端口关闭、
+   `%USERPROFILE%\.webflow_bridge` 保留；`-Purge` 一并删除。
+7. 自包含运行时：在 PATH 中移除 Python 后直接运行该 exe → 仍能启动。
+8. SmartScreen / 杀软：未签名 exe 可能告警；拿到 EV 证书后复验。
+
+---
+
+## 故障排查
 
 | 症状 | 修复 |
 |---|---|
