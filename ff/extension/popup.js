@@ -152,11 +152,16 @@ function truncate(text, max) {
 }
 
 // 修复内容构建器（仅 'bad' 行使用；静态模板文案走 innerHTML，动态错误走 textContent）。
-// 极简引导句 + 两条可复制命令行（平台命令 / uv，无文字标签，代码框内嵌复制图标）。
+// 引导句给出运行位置（项目根）+ 每条命令一句适用说明（cmd_python / cmd_uv）；
+// 两条可复制命令行（平台命令 / uv，代码框内嵌复制图标）。
 function daemonFix() {
   const fix = [];
+  // daemon_lead 给出运行位置（项目根目录）；cmd_python / cmd_uv 分别说明
+  // 两条命令各自适用的情况。
   fix.push({ type: 'text', html: T('daemon_lead') });
+  fix.push({ type: 'text', html: T('cmd_python') });
   fix.push({ type: 'cmd', cmd: DAEMON_CMD });
+  fix.push({ type: 'text', html: T('cmd_uv') });
   fix.push({ type: 'cmd', cmd: DAEMON_UV_CMD });
   fix.push({ type: 'text', html: T('daemon_fix_wait') });
   return fix;
@@ -230,7 +235,10 @@ function makeCmdBox(cmd) {
   const box = document.createElement('div');
   box.className = 'wiz-cmd';
   const code = document.createElement('code');
-  code.textContent = cmd;              // 命令值固定为常量——只用 textContent
+  const text = document.createElement('span');
+  text.className = 'cmd-text';
+  text.textContent = cmd;              // 命令值固定为常量——只用 textContent；不折行，过宽横向滚动
+  code.appendChild(text);
   box.appendChild(code);
   box.appendChild(makeCopyBtn(cmd));
   return box;
@@ -487,6 +495,14 @@ function setActBtn(s) {
   c.setAttribute('aria-busy', (s === 'checking') ? 'true' : 'false');
   $('mainWord').textContent = (s === 'checking') ? T('checking')
                              : (s === 'active') ? T('active') : T('inactive');
+  // 横幅副行：未激活时在红色卡面上直接写明原因，与下方清单口径一致。
+  const reason = $('mainReason');
+  if (s === 'inactive') {
+    reason.textContent = T('reason_daemon_down');
+    reason.hidden = false;
+  } else {
+    reason.hidden = true;
+  }
 }
 
 // 由真实状态推导：daemon 在线 + Firefox 已连（probe connected）→ Active；
@@ -910,6 +926,13 @@ function wire() {
     if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); guardExec(doExec); }
   });
   $('guideRetry').addEventListener('click', () => guardExec(retryLast));
+  // 「重新检测」：复用既有诊断路径（fetch /config + probe + evaluate），不新增协议。
+  $('wizRecheck').addEventListener('click', () => guardExec(async () => {
+    const b = $('wizRecheck');
+    if (b.disabled) return;
+    b.disabled = true;
+    try { await runDiagnosis(); } finally { b.disabled = false; }
+  }));
 }
 
 // 「启动指引」<details> 区按语言渲染（代码/路径经占位符注入，与 ff/README.md 一致）。

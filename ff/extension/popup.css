@@ -214,6 +214,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;   /* icon + 状态词居中，不左偏 */
+  flex-wrap: wrap;           /* 未激活原因副行单独换行 */
   gap: var(--sp-2);
   width: calc(100% - 24px);   /* 与 .card 的 12px 左右外边距对齐 */
   min-height: var(--tap);
@@ -321,6 +322,16 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 横幅副行（仅未激活）：flex-basis 100% 强制换到 icon + 状态词下方，
+   让红底卡面自述原因，不再与下方绿色「已就绪」项冲突。 */
+.main-reason {
+  flex-basis: 100%;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0.92;
 }
 
 /* ---------- 按钮 ---------- */
@@ -678,11 +689,14 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .wiz-cmd {
   position: relative;
   display: block;
+  min-width: 0;   /* 让容器收窄，代码框内部横向滚动 */
 }
 
 .wiz-cmd code {
   display: flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   min-height: var(--tap);
   margin: 0;
   padding: var(--sp-1) calc(var(--tap) + var(--sp-2)) var(--sp-1) var(--sp-2);   /* 右侧留出复制按钮 */
@@ -691,10 +705,18 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   border-radius: var(--r-2);
   font: var(--fs-sm)/1.55 var(--mono);
   color: var(--text);
-  word-break: break-all;
-  white-space: normal;
+  /* 命令保持单行：过宽时横向滚动，不再从词中间断开（复制内容始终完整）。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   transition: border-color var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
+}
+
+/* 命令文本保留固有宽度 → 代码框滚动而非折行。 */
+.wiz-cmd code .cmd-text {
+  flex: none;
+  white-space: pre;
 }
 
 .copy-btn {
@@ -759,6 +781,30 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   max-height: 80px;
   overflow: auto;
 }
+
+/* 「重新检测」按钮：激活清单底部的次级动作，整宽、≥44px。复用既有诊断
+   路径（/config + probe + evaluate），不新增协议。 */
+.recheck-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: var(--sp-3);
+  padding: 0 var(--sp-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--muted);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.recheck-btn:hover { background: var(--surface-2); color: var(--text); }
+.recheck-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.recheck-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* ---------- 页脚 ---------- */
 

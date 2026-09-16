@@ -54,6 +54,7 @@
   const versionEl = document.getElementById('version');
   const mainCard = document.getElementById('mainCard');
   const mainWord = document.getElementById('mainWord');
+  const mainReasonEl = document.getElementById('mainReason');
   const wizardEl = document.getElementById('wizard');
   const wizRowsEl = document.getElementById('wizRows');
   const connBtn = document.getElementById('connBtn');
@@ -89,6 +90,14 @@
     mainWord.textContent = (s === 'checking') ? T('checking')
                          : (s === 'disconnected') ? T('disconnected')
                          : (s === 'active') ? T('active') : T('inactive');
+    // Banner sub-line: Inactive names the reason right on the red surface, so
+    // the banner and the checklist tell one story instead of contradicting.
+    if (s === 'inactive') {
+      mainReasonEl.textContent = T('reason_daemon_down');
+      mainReasonEl.hidden = false;
+    } else {
+      mainReasonEl.hidden = true;
+    }
     updateConnBtn();
   }
 
@@ -195,12 +204,16 @@
   }
 
   // Fix content builders (only invoked for 'bad' rows).
-  // daemonFix is deliberately minimal: lead line + the two start commands —
-  // no pointing sentence and no wait-for-banner sentence any more.
+  // daemonFix: lead line with the run directory + one line per start command
+  // (cmd_python / cmd_uv say which setup each one is for), then the repo link.
   function daemonFix() {
     const fix = [];
+    // daemon_lead carries the directory context (run from the project root);
+    // cmd_python / cmd_uv label each command with when to pick it.
     fix.push({ type: 'text', html: T('daemon_lead') });
+    fix.push({ type: 'text', html: T('cmd_python') });
     fix.push({ type: 'cmd', cmd: DAEMON_CMD });
+    fix.push({ type: 'text', html: T('cmd_uv') });
     fix.push({ type: 'cmd', cmd: DAEMON_UV_CMD });
     // Quiet pointer to the project itself (label is i18n, brand words stay).
     fix.push({ type: 'link', href: PROJECT_URL, text: T('project_link') });
@@ -268,11 +281,15 @@
         } else if (item.type === 'cmd') {
           // Code-box row with an embedded copy button (GitHub style): the
           // code fills the box, the icon-only button floats at its right
-          // edge. item.label is deliberately ignored (labels are gone).
+          // edge. item.label is deliberately ignored — the wording lives in
+          // the separate cmd_python / cmd_uv text items.
           const row = document.createElement('div');
           row.className = 'wiz-cmd';
           const code = document.createElement('code');
-          code.textContent = item.cmd;
+          const text = document.createElement('span');
+          text.className = 'cmd-text';
+          text.textContent = item.cmd;   // full command; box scrolls, never wraps
+          code.appendChild(text);
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'copy-btn';
@@ -494,9 +511,12 @@
     }
 
     if (!st.daemon) {
+      // The extension is fine, but showing it green next to a red Inactive
+      // banner reads as a contradiction — mark it pending with the reason it
+      // cannot be confirmed yet (same behaviour as the Firefox build).
       renderRows({
         daemon: { state: 'bad', fix: daemonFix() },
-        ext: { state: 'ok' },
+        ext: { state: 'pending', note: T('note_daemon_off') },
       });
       addReasonRow(reason);
       return;
@@ -629,6 +649,15 @@
   setActState('checking');
   refreshPing().then(() => {
     if (state === 'inactive') diagnose();
+  });
+  // Re-check: re-runs the existing diagnosis (same wf-ping / wf-evaluate path
+  // the poll and the card click already use — no new protocol) after the user
+  // has started the daemon.
+  const recheckBtn = document.getElementById('wizRecheck');
+  recheckBtn.addEventListener('click', async () => {
+    if (busy) return;
+    recheckBtn.disabled = true;
+    try { await diagnose(); } finally { recheckBtn.disabled = false; }
   });
   mainCard.addEventListener('click', onMainClick);
   mainCard.addEventListener('keydown', (ev) => {

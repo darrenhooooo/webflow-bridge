@@ -41,6 +41,10 @@
            stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>
     </span>
     <span id="mainWord" class="main-word" aria-live="polite" aria-atomic="true">Checking…</span>
+    <!-- Sub-line under the state word: on Inactive it names the reason (the
+         daemon is not running), so the red banner never contradicts a green
+         "ready" row. Empty and hidden in every other state. -->
+    <span id="mainReason" class="main-reason" hidden></span>
   </div>
 
   <!-- Connection toggle: secondary muted action right under the main card.
@@ -50,9 +54,11 @@
 
   <!-- Activation checklist: one row per condition; a failing row carries the
        fix steps (real daemon command + Copy button, reload URL, page switch).
-       The list follows the live state automatically — no manual refresh button. -->
+       The list follows the live state automatically; the Re-check button at
+       its foot re-runs the exact same diagnosis after the user acts. -->
   <section id="wizard" class="card wizard hidden">
     <ul id="wizRows" class="wiz-rows"></ul>
+    <button id="wizRecheck" type="button" class="recheck-btn" data-i18n="recheck">Re-check</button>
   </section>
 
   <!-- Friendly confirmation shown once the Active channel is verified -->

@@ -33,6 +33,9 @@
         <path d="M20 6 9 17l-5-5"/></svg>
     </span>
     <span id="mainWord" class="main-word">Checking…</span>
+    <!-- 横幅副行：未激活时直接写明原因（daemon 没运行），避免红底横幅与
+         下方绿色「已就绪」项自相矛盾。其余状态清空隐藏。 -->
+    <span id="mainReason" class="main-reason" hidden></span>
   </div>
   <div class="err-line main-err" id="status-err" hidden></div>
 
@@ -52,6 +55,7 @@
        缺哪项就给哪项的真实修复步骤 + 一键复制命令；清单随实时状态自动更新。 -->
   <section id="wizard" class="card wizard" hidden>
     <ul id="wizRows" class="wiz-rows"></ul>
+    <button id="wizRecheck" type="button" class="recheck-btn" data-i18n="recheck">重新检测</button>
   </section>
 
   <!-- 4. 执行 JS -->

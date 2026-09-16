@@ -176,6 +176,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;   /* icon + word centred, not left-biased */
+  flex-wrap: wrap;           /* lets the Inactive reason drop to its own line */
   gap: var(--sp-2);
   width: 100%;
   min-height: var(--tap);    /* one comfortable target in every state */
@@ -343,6 +344,17 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Reason sub-line inside the banner (Inactive only). flex-basis 100% forces it
+   onto its own line under the icon + word, so the red surface explains itself
+   instead of clashing with a green "ready" row below. */
+.main-reason {
+  flex-basis: 100%;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0.92;
+}
+
 @keyframes pulse {
   50% { opacity: 0.35; }
 }
@@ -505,12 +517,15 @@ body {
 .wiz-cmd {
   display: block;
   position: relative;
+  min-width: 0;   /* let the grid track shrink; the code box scrolls instead */
 }
 
 .wiz-cmd code {
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: var(--tap);
   padding: var(--sp-1) calc(var(--tap) + var(--sp-2)) var(--sp-1) var(--sp-2); /* right pad clears the button */
   background: var(--bg);
@@ -518,11 +533,22 @@ body {
   border-radius: var(--r-2);
   font: var(--fs-sm)/1.5 var(--mono);
   color: var(--text);
-  word-break: break-all;
+  /* Keep the command on one line: it overflows and scrolls horizontally rather
+     than breaking mid-word (the copied string is always the full command). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   box-sizing: border-box;
   box-shadow: inset 0 1px 2px rgba(60, 64, 67, 0.06);
   transition: border-color var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
+}
+
+/* The command text keeps its intrinsic width so the box scrolls instead of
+   wrapping it. */
+.wiz-cmd code .cmd-text {
+  flex: none;
+  white-space: pre;
 }
 
 .wiz-cmd .copy-btn {
@@ -596,6 +622,42 @@ body {
   .wiz-link:hover { color: var(--primary); text-decoration-color: currentColor; }
 }
 .wiz-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Re-check action at the foot of the activation checklist: quiet secondary
+   button, full width, ≥44px target. Re-runs the same diagnosis (poll / card
+   click path) so the user never has to guess whether to reopen the popup. */
+.recheck-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: var(--sp-3);
+  padding: 0 var(--sp-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text-muted);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .recheck-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+}
+.recheck-btn:active:not(:disabled) { transform: scale(0.98); }
+.recheck-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.recheck-btn:disabled { opacity: 0.6; cursor: default; }
 
 .wiz-rawerr {
   display: block;
@@ -749,7 +811,8 @@ html[dir="rtl"] textarea {
   .conn-btn,
   .wiz-cmd code,
   .wiz-cmd .copy-btn,
-  .wiz-link { transition: none; }
+  .wiz-link,
+  .recheck-btn { transition: none; }
 
   .main-card[data-state="checking"] .state-icon::after,
   .main-card[data-state="inactive"] .state-icon::after,
