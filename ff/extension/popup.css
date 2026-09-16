@@ -35,6 +35,22 @@
   --card-inactive-ink: #ffffff;    /* 白（文字/状态点） */
   --card-active-ink: #ffffff;      /* 白（文字/状态点） */
   --mono: "Cascadia Mono", Consolas, ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Motion — custom curves only, every duration < 300ms, spatial motion is
+     transform/opacity only. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur-fast: 120ms;   /* pointer feedback */
+  --dur-state: 200ms;  /* card / row state change */
+  --dur-enter: 240ms;  /* one-shot entrance */
+  --dur-leave: 180ms;  /* collapse / dismiss */
+
+  /* Scale, authored once and reused:
+     spacing 4 / 8 / 12 / 16 · radius 6 / 8 / 10 / 12 / pill ·
+     type 11 / 12.5 / 14 (three tiers only). */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;
+  --r-1: 6px;   --r-2: 8px;   --r-3: 10px;   --r-4: 12px;  --r-pill: 999px;
+  --fs-sm: 11px; --fs-md: 12.5px; --fs-lg: 14px;
+  --tap: 44px;         /* minimum interactive target */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -71,25 +87,27 @@ html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto,
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto,
         "Microsoft YaHei", sans-serif;
+  font-size: var(--fs-md);
+  line-height: 1.5;
   width: 320px;
 }
 
 /* ---------- 头部 ---------- */
 
 .head {
-  padding: 12px 14px 4px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-1);
 }
 
 .head h1 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 500;
   letter-spacing: 0.1px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   color: var(--text);
 }
 
@@ -97,16 +115,17 @@ html, body {
   width: 20px;
   height: 20px;
   flex: none;
+  border-radius: var(--r-1);
 }
 
 .ver {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
-  padding: 0 8px;
-  border-radius: 999px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-pill);
 }
 
 /* ---------- 卡片 ---------- */
@@ -114,15 +133,15 @@ html, body {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  margin: 8px 12px;
-  padding: 10px 12px;
+  border-radius: var(--r-4);
+  margin: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3);
   box-shadow: var(--shadow-card);
 }
 
 .card h2 {
-  margin: 0 0 8px;
-  font-size: 11px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--muted);
@@ -155,44 +174,101 @@ html, body {
   50% { opacity: 0.35; }
 }
 
+/* 探测中 spinner（纯 transform 旋转）。 */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 探测中图标外扩光环。 */
+@keyframes dotPing {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* 填充态落地时的一次性确认光环。 */
+@keyframes dotHalo {
+  0%   { transform: scale(1);   opacity: 0.8; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(5px); }
+}
+
 .err-line {
   color: var(--err);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   word-break: break-all;
 }
 
 /* 主卡下方的错误小字（隐藏时无占位，不影响布局） */
 .main-err {
-  margin: 2px 14px 0;
+  margin: var(--sp-1) var(--sp-4) 0;
 }
 
-/* ---------- 主卡（终版：整卡状态显示器 = 状态点 + 状态词水平居中；整卡即
+/* ---------- 主卡（终版：整卡状态显示器 = 状态图标 + 状态词水平居中；整卡即
  * 激活/验证入口，role=button）。data-state 驱动整卡表面：checking（中性灰，
  * 探测中）/ inactive（红底「未激活」，点击展开激活清单）/ active（绿底
- * 「已激活」，点击做一次真实 evaluate → 友好绿卡）。版本只出现在头部。 */
+ * 「已激活」，点击做一次真实 evaluate → 友好绿卡）。版本只出现在头部。
+ * 已激活是静止态：卡片收窄为一条状态条，不再占据主视觉。 */
 
 #mainCard {
   display: flex;
   align-items: center;
-  justify-content: center;   /* dot + 状态词居中，不左偏 */
-  gap: 10px;
+  justify-content: center;   /* icon + 状态词居中，不左偏 */
+  gap: var(--sp-2);
   width: calc(100% - 24px);   /* 与 .card 的 12px 左右外边距对齐 */
-  margin: 8px 12px 2px;
-  padding: 14px 12px;
+  min-height: var(--tap);
+  margin: var(--sp-2) var(--sp-3) var(--sp-1);
+  padding: var(--sp-4);
   text-align: center;
-  font: 600 13.5px/1.2 system-ui, -apple-system, "Segoe UI", Roboto,
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto,
         "Microsoft YaHei", sans-serif;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
   user-select: none;
-  /* 与 Chrome/Edge 版对齐：红↔绿平滑过渡（状态点同款 background-color 过渡，
-     不新增动画，不影响 checking 的 pulse）。 */
-  transition: background-color .35s ease, border-color .35s ease,
-              color .35s ease;
+  /* 逐属性过渡，均 < 300ms、ease-out；填充态 + 内联高光一起淡入。 */
+  transition: background-color var(--dur-state) var(--ease-out),
+              border-color var(--dur-state) var(--ease-out),
+              color var(--dur-state) var(--ease-out),
+              box-shadow var(--dur-state) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
 
-#mainCard .main-dot {
+/* 静止态（已激活 / 已断开）更矮，把屏幕留给内容。 */
+#mainCard[data-state="active"],
+#mainCard[data-state="disconnected"] {
+  padding: var(--sp-2) var(--sp-4);
+}
+
+/* 单一图标位：spinner（探测中）/ alert（未激活）/ check（已激活）。 */
+#mainCard .state-icon {
+  position: relative;
   flex: none;
-  transition: background-color .35s ease;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: currentColor;
+  transition: color var(--dur-state) var(--ease-out);
+}
+#mainCard .state-icon .si {
+  grid-area: 1 / 1;
+  width: 18px;
+  height: 18px;
+  display: none;
+}
+#mainCard[data-state="checking"] .si-spin { display: block; animation: spin 900ms linear infinite; }
+#mainCard[data-state="inactive"] .si-warn,
+#mainCard[data-state="active"] .si-check { display: block; }
+
+#mainCard .state-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
 }
 
 #mainCard[data-state="checking"] {
@@ -202,9 +278,10 @@ html, body {
   font-weight: 500;
   cursor: default;
 }
-#mainCard[data-state="checking"] .main-dot {
+#mainCard[data-state="checking"] .state-icon { color: var(--primary); }
+#mainCard[data-state="checking"] .state-icon::after {
   background: var(--primary);
-  animation: pulse 1s infinite;
+  animation: dotPing 1.6s var(--ease-out) infinite;
 }
 
 #mainCard[data-state="inactive"] {
@@ -225,24 +302,19 @@ html, body {
   background: var(--card-active-hover);
 }
 
-/* 填充态下状态点为白色小圆（与文字同色）+ 柔和白色光环 */
-#mainCard[data-state="inactive"] .main-dot {
-  background: var(--card-inactive-ink);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+/* 填充态下图标为白色（与文字同色）+ 一次性柔和白色光环 */
+#mainCard[data-state="inactive"] .state-icon::after {
+  background: #ffffff;
+  animation: dotHalo 280ms var(--ease-out) 1;
 }
-#mainCard[data-state="active"] .main-dot {
-  background: var(--card-active-ink);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+#mainCard[data-state="active"] .state-icon::after {
+  background: #ffffff;
+  animation: dotHalo 280ms var(--ease-out) 1;
 }
 
 #mainCard:active { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25); }
+#mainCard[aria-busy="true"] { cursor: progress; }
 #mainCard:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-
-.main-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
 
 .main-word {
   min-width: 0;
@@ -255,19 +327,28 @@ html, body {
 
 .btn-row {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
-  margin: 8px 0 2px;
+  margin: var(--sp-2) 0 var(--sp-1);
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);   /* 可点区域 ≥ 44px */
   font: inherit;
   cursor: pointer;
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 10px;
+  border-radius: var(--r-2);
+  padding: 0 var(--sp-3);
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
 
 button:hover { background: var(--surface-2); border-color: var(--primary); }
@@ -292,9 +373,9 @@ button.ghost:hover { background: var(--surface-2); border-color: var(--border); 
 .kv {
   background: var(--surface-3);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 9px;
-  margin-top: 6px;
+  border-radius: var(--r-2);
+  padding: var(--sp-1) var(--sp-2);
+  margin-top: var(--sp-2);
   word-break: break-all;
 }
 
@@ -302,7 +383,7 @@ button.ghost:hover { background: var(--surface-2); border-color: var(--border); 
 
 .tabs {
   list-style: none;
-  margin: 8px 0 2px;
+  margin: var(--sp-2) 0 var(--sp-1);
   padding: 0;
   max-height: 150px;
   overflow-y: auto;
@@ -310,28 +391,31 @@ button.ghost:hover { background: var(--surface-2); border-color: var(--border); 
 
 .tabs li {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 8px;
-  margin-bottom: 5px;
+  border-radius: var(--r-2);
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-1);
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
 }
 
 .tabs li:hover { border-color: var(--primary); background: var(--surface-2); }
+.tabs li:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .tabs .t-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tabs .t-url { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tabs .t-meta { color: var(--muted); font-size: 10px; margin-top: 2px; }
+.tabs .t-url { color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabs .t-meta { color: var(--muted); font-size: var(--fs-sm); margin-top: var(--sp-1); }
 .tabs .t-active { color: var(--ok); }
 
 /* ---------- 执行 JS ---------- */
 
 textarea {
   width: 100%;
-  font: 12px/1.5 var(--mono);
+  font: var(--fs-md)/1.5 var(--mono);
   color: var(--text);
   background: var(--surface-3);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: var(--r-2);
+  padding: var(--sp-2);
   resize: vertical;
   min-height: 62px;
 }
@@ -339,18 +423,19 @@ textarea {
 textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 
 .result {
-  font: 12px/1.55 var(--mono);
+  font: var(--fs-md)/1.55 var(--mono);
   background: var(--surface-3);
   color: var(--text);
   border: 1px solid var(--border);
   border-left: 3px solid var(--primary);
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin: 8px 0 2px;
+  border-radius: var(--r-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin: var(--sp-2) 0 var(--sp-1);
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 190px;
   overflow: auto;
+  animation: riseIn var(--dur-enter) var(--ease-out) backwards;
 }
 
 .result.err {
@@ -363,26 +448,28 @@ textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 
   border-left-color: var(--ok);
   border-color: var(--ok);
   background: var(--ok-tint);
-  font: 12.5px/1.6 system-ui, -apple-system, "Segoe UI", Roboto,
+  font: var(--fs-md)/1.6 system-ui, -apple-system, "Segoe UI", Roboto,
         "Microsoft YaHei", sans-serif;
 }
 
 .h2line {
-  font-size: 10px;
+  font-size: var(--fs-sm);
   color: var(--muted);
   letter-spacing: 0.5px;
-  margin: 8px 0 4px;
+  margin: var(--sp-2) 0 var(--sp-1);
 }
 
 .history-chip {
-  display: inline-block;
-  margin: 0 4px 4px 0;
-  padding: 2px 8px;
-  font: 11px var(--mono);
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  margin: 0 var(--sp-1) var(--sp-1) 0;
+  padding: 0 var(--sp-2);
+  font: var(--fs-sm)/1.4 var(--mono);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   cursor: pointer;
 }
 
@@ -390,50 +477,51 @@ textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 
 
 /* ---------- token ---------- */
 
-.token-line { display: flex; align-items: center; gap: 8px; }
+.token-line { display: flex; align-items: center; gap: var(--sp-2); }
 
 .token {
-  font: 11px var(--mono);
+  font: var(--fs-sm) var(--mono);
   color: var(--text);
   background: var(--surface-3);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 7px;
+  border-radius: var(--r-1);
+  padding: var(--sp-1) var(--sp-2);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.small { font-size: 11px; }
+.small { font-size: var(--fs-sm); }
 .muted { color: var(--muted); }
 
 /* ---------- 启动指引 ---------- */
 
 details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 
-.guide { margin: 8px 0 4px; padding-left: 18px; }
-.guide li { margin-bottom: 6px; }
+.guide { margin: var(--sp-2) 0 var(--sp-1); padding-left: 18px; }
+.guide li { margin-bottom: var(--sp-2); }
 
 .guide code, .muted code {
-  font: 11px var(--mono);
+  font: var(--fs-sm) var(--mono);
   color: var(--text);
   background: var(--surface-3);
   border: 1px solid var(--border);
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 1px var(--sp-1);
+  border-radius: var(--r-1);
   word-break: break-all;
 }
 
 /* ---------- 激活引导卡片（动作失败；data-kind=daemon|ext|fx） ---------- */
 
 .act-guide {
-  margin-top: 8px;
-  padding: 9px 10px;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-left: 3px solid var(--err);
-  border-radius: 8px;
+  border-radius: var(--r-2);
+  animation: riseIn var(--dur-enter) var(--ease-out) backwards;
 }
 
 .act-guide[data-kind="fx"] { border-left-color: var(--warn); }
@@ -441,12 +529,12 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .act-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .act-title {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -454,11 +542,11 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 }
 
 .act-steps {
-  margin: 6px 0 0;
+  margin: var(--sp-2) 0 0;
   padding-left: 20px;
   display: grid;
-  gap: 5px;
-  font-size: 12px;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
   color: var(--text);
 }
 
@@ -466,18 +554,18 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 
 .act-steps code {
   display: block;
-  margin-top: 4px;
-  padding: 4px 7px;
+  margin-top: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  font: 11px/1.5 var(--mono);
+  border-radius: var(--r-1);
+  font: var(--fs-sm)/1.5 var(--mono);
   color: var(--text);
   word-break: break-all;
   white-space: normal;
 }
 
-.act-actions { margin: 8px 0 0; }
+.act-actions { margin: var(--sp-2) 0 0; }
 .act-actions button { border-color: var(--border); }
 
 /* ---------- 激活清单（方案A） ---------- */
@@ -486,17 +574,21 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 
 .wiz-rows {
   list-style: none;
-  margin: 6px 0 0;
+  margin: var(--sp-2) 0 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .wiz-row {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
   background: var(--surface-2);
+  animation: riseIn var(--dur-enter) var(--ease-out) backwards;
+  transition: background-color var(--dur-state) var(--ease-out),
+              border-color var(--dur-state) var(--ease-out),
+              box-shadow var(--dur-state) var(--ease-out);
 }
 
 .wiz-row[data-state="ok"] {
@@ -514,7 +606,7 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .wiz-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .wiz-icon {
@@ -527,10 +619,13 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
   justify-content: center;
   background: var(--bg);
   border: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   line-height: 1;
   color: var(--muted);
+  transition: background-color var(--dur-state) var(--ease-out),
+              border-color var(--dur-state) var(--ease-out),
+              color var(--dur-state) var(--ease-out);
 }
 
 .wiz-row[data-state="ok"] .wiz-icon {
@@ -551,103 +646,114 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 }
 
 .wiz-name {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text);
 }
 
 .wiz-fix {
-  margin-top: 6px;
+  margin-top: var(--sp-2);
   display: grid;
-  gap: 5px;
+  gap: var(--sp-2);
 }
 
 .wiz-step {
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--text);
 }
 
 .wiz-step code {
   display: inline-block;
-  padding: 0 4px;
+  padding: 0 var(--sp-1);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  font: 11px/1.5 var(--mono);
+  border-radius: var(--r-1);
+  font: var(--fs-sm)/1.5 var(--mono);
   color: var(--text);
   word-break: break-all;
 }
 
+/* 命令行统一形态：代码框 + 填满右缘的 44px 复制按钮（GitHub 代码块风格）。 */
 .wiz-cmd {
   position: relative;
   display: block;
 }
 
 .wiz-cmd code {
-  display: block;
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
   margin: 0;
-  padding: 6px 32px 6px 8px;   /* 右侧留出内嵌复制按钮位 */
+  padding: var(--sp-1) calc(var(--tap) + var(--sp-2)) var(--sp-1) var(--sp-2);   /* 右侧留出复制按钮 */
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  font: 11px/1.55 var(--mono);
+  border-radius: var(--r-2);
+  font: var(--fs-sm)/1.55 var(--mono);
   color: var(--text);
   word-break: break-all;
   white-space: normal;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .copy-btn {
   position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--tap);
+  min-height: 0;
   padding: 0;
   background: transparent;
-  border: none;
-  border-radius: 5px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0 calc(var(--r-2) - 1px) calc(var(--r-2) - 1px) 0;
   color: var(--muted);
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
 }
 
 .copy-btn svg { display: block; }
 .copy-btn .ci-ok { display: none; }
 
 .copy-btn:hover { background: var(--surface-2); color: var(--primary); }
-.copy-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
+.copy-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .copy-btn:disabled { opacity: 0.55; cursor: default; }
 .copy-btn:disabled:hover { background: transparent; color: var(--muted); }
 
-/* 复制成功 → 绿色对勾图标（图标态反馈，无文字） */
+/* 复制成功 → 绿色对勾图标；失败 → 红色闪一下（图标态反馈，无文字） */
 .copy-btn.copied { color: var(--ok); }
 .copy-btn.copied .ci-copy { display: none; }
 .copy-btn.copied .ci-ok { display: block; color: var(--ok); }
+.copy-btn.copy-failed { color: var(--err); border-color: var(--err); }
 
 /* 引导卡 / 启动指引 <li> 内追加的 .wiz-cmd：块级、上下留距 */
 .act-steps .wiz-cmd,
 .guide .wiz-cmd {
-  margin: 6px 0 0;
+  margin: var(--sp-2) 0 0;
 }
 
-.wiz-cmd + .wiz-cmd { margin-top: 4px; }
+.wiz-cmd + .wiz-cmd { margin-top: var(--sp-1); }
 
 .wiz-note {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
 .wiz-rawerr {
   display: block;
-  padding: 4px 7px;
+  padding: var(--sp-1) var(--sp-2);
   background: var(--bg);
   border: 1px solid var(--err-border);
-  border-radius: 6px;
-  font: 11px/1.5 var(--mono);
+  border-radius: var(--r-1);
+  font: var(--fs-sm)/1.5 var(--mono);
   color: var(--err);
   word-break: break-all;
   max-height: 80px;
@@ -657,9 +763,16 @@ details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 /* ---------- 页脚 ---------- */
 
 .foot {
-  padding: 4px 14px 12px;
-  font-size: 10px;
+  padding: var(--sp-1) var(--sp-4) var(--sp-3);
+  font-size: var(--fs-sm);
 }
+
+/* ---------- 激活清单展开 / 收起 ----------
+ * 仅用 opacity + transform 过渡（< 300ms）；收起由 popup.js 加 .leaving，
+ * 过渡结束后再置 hidden。 */
+.wizard { transition: opacity var(--dur-leave) var(--ease-out),
+                    transform var(--dur-leave) var(--ease-out); }
+.wizard.leaving { opacity: 0; transform: translateY(-4px); }
 
 /* ---------- RTL（阿拉伯语） ----------
  * 布局随 dir="rtl" 自动镜像（flex 自动反转）；仅代码 / pre / textarea 保持 LTR，
@@ -671,4 +784,18 @@ html[dir="rtl"] textarea {
   direction: ltr;
   unicode-bidi: isolate;
   text-align: left;
+}
+
+/* ---------- reduced motion（完全静止） ----------
+ * 关闭入场、光环、spinner、循环脉冲与过渡；状态仍由颜色 + 图标形状 +
+ * 文字表达。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  #mainCard .state-icon::after { opacity: 0 !important; }
+  .wizard.leaving { opacity: 0; transform: none; }
 }

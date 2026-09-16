@@ -23,9 +23,23 @@
        evaluate → friendly confirmation) / disconnected (neutral, user paused
        the link — not clickable). Port / local-daemon rows removed; the version
        appears only in the header above. -->
-  <div id="mainCard" role="button" tabindex="0" aria-disabled="true"
+  <div id="mainCard" role="button" tabindex="0" aria-disabled="true" aria-busy="true"
        class="card main-card" data-state="checking">
-    <span class="dot" aria-hidden="true"></span>
+    <!-- One icon slot, three states (CSS toggles): spinner = probing, alert = inactive,
+         check = active. The word alone already carries meaning; the icon makes it
+         readable at a glance without relying on colour. -->
+    <span class="state-icon" aria-hidden="true">
+      <svg class="si si-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 1-6.4 2.6"/></svg>
+      <svg class="si si-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5h.01"/></svg>
+      <svg class="si si-check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/></svg>
+      <svg class="si si-off" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>
+    </span>
     <span id="mainWord" class="main-word" aria-live="polite" aria-atomic="true">Checking…</span>
   </div>
 
@@ -42,7 +56,7 @@
   </section>
 
   <!-- Friendly confirmation shown once the Active channel is verified -->
-  <pre id="result" class="result hidden"></pre>
+  <pre id="result" class="result hidden" role="status" aria-live="polite"></pre>
 
   <script src="i18n.js"></script>
   <script src="popup.js"></script>

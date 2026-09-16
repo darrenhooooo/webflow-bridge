@@ -44,12 +44,22 @@
   --card-active-ink: #ffffff;      /* white (text + dot) on active */
   --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
 
-  /* Motion — custom curves only; ease-in is never used (it reads as lag). */
+  /* Motion — custom curves only; ease-in is never used (it reads as lag).
+     Every duration is < 300ms; spatial motion is transform/opacity only. */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --dur-fast: 140ms;   /* pointer feedback */
-  --dur-state: 260ms;  /* card / row state change */
-  --dur-enter: 300ms;  /* one-shot entrance */
+  --dur-fast: 120ms;   /* pointer feedback */
+  --dur-state: 200ms;  /* card / row state change */
+  --dur-enter: 240ms;  /* one-shot entrance */
+  --dur-leave: 180ms;  /* collapse / dismiss */
+
+  /* Scale, authored once and reused:
+     spacing 4 / 8 / 12 / 16 · radius 6 / 8 / 10 / 12 / pill ·
+     type 11 / 12.5 / 14 (three tiers only). */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;
+  --r-1: 6px;   --r-2: 8px;   --r-3: 10px;   --r-4: 12px;  --r-pill: 999px;
+  --fs-sm: 11px; --fs-md: 12.5px; --fs-lg: 14px;
+  --tap: 44px;         /* minimum interactive target */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -94,13 +104,15 @@
 body {
   width: 320px;
   margin: 0;
-  padding: 12px 16px 10px;
+  padding: var(--sp-3) var(--sp-4);
   background-color: var(--bg);
   background-image: var(--ambient);
   background-repeat: no-repeat;
   color: var(--text);
-  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto,
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto,
         "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--fs-md);
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -111,7 +123,7 @@ body {
 .head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   animation: riseIn var(--dur-enter) var(--ease-out) backwards;
 }
 
@@ -119,26 +131,26 @@ body {
   width: 20px;
   height: 20px;
   flex: none;
-  border-radius: 5px;
+  border-radius: var(--r-1);
 }
 
 .title {
   margin: 0;
   flex: 1;
-  font-size: 14px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
 }
 
 .version {
-  padding: 2px 8px;
+  padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface);
   box-shadow: var(--highlight);
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -155,7 +167,7 @@ body {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-4);
   box-shadow: var(--shadow-card);
 }
 
@@ -163,25 +175,36 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;   /* dot + word centred, not left-biased */
-  gap: 10px;
+  justify-content: center;   /* icon + word centred, not left-biased */
+  gap: var(--sp-2);
   width: 100%;
-  margin: 12px 0 0;
-  padding: 15px 14px;
+  min-height: var(--tap);    /* one comfortable target in every state */
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-4);
   text-align: center;
-  font: 600 14px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.2;
   letter-spacing: -0.01em;
   cursor: pointer;
   user-select: none;
   /* Per-property transitions only. The state change reads as a confident
-     crossfade (fill + ink + elevation) with a one-shot dot halo below; the
-     checking pulse animates opacity/scale, never layout. */
+     crossfade (fill + ink + elevation); the icon carries a one-shot halo. */
   transition: background-color var(--dur-state) var(--ease-out),
               border-color var(--dur-state) var(--ease-out),
               color var(--dur-state) var(--ease-out),
               box-shadow var(--dur-state) var(--ease-out),
               transform var(--dur-fast) var(--ease-out);
   animation: riseIn var(--dur-enter) var(--ease-out) 40ms backwards;
+}
+
+/* Active is the resting state: it shrinks to a slim status bar so the popup
+   stops "owning the screen" once everything works. Checking / inactive keep
+   the taller, more prominent surface. */
+.main-card[data-state="active"],
+.main-card[data-state="disconnected"] {
+  padding: var(--sp-2) var(--sp-4);
 }
 
 /* Arriving on a filled state commits with a barely-there settle; the final
@@ -192,19 +215,31 @@ body {
   animation: cardCommit var(--dur-state) var(--ease-out);
 }
 
-.main-card .dot {
+/* One icon slot: spinner (checking) / alert (inactive) / check (active). */
+.main-card .state-icon {
   position: relative;
   flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  transition: background-color var(--dur-state) var(--ease-out),
-              box-shadow var(--dur-state) var(--ease-out);
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: currentColor;
+  transition: color var(--dur-state) var(--ease-out);
 }
+.main-card .state-icon .si {
+  grid-area: 1 / 1;
+  width: 18px;
+  height: 18px;
+  display: none;
+}
+.main-card[data-state="checking"] .si-spin { display: block; animation: spin 900ms linear infinite; }
+.main-card[data-state="inactive"] .si-warn,
+.main-card[data-state="active"] .si-check,
+.main-card[data-state="disconnected"] .si-off { display: block; }
 
 /* Expanding halo ring — the authored motion moment. Pseudo-element keeps the
    animation off the layout box and out of the text path. */
-.main-card .dot::after {
+.main-card .state-icon::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -222,11 +257,8 @@ body {
   cursor: default;
   box-shadow: var(--shadow-card), var(--highlight);
 }
-.main-card[data-state="checking"] .dot {
-  background: var(--primary);
-  box-shadow: 0 0 0 3px var(--ok-tint);
-}
-.main-card[data-state="checking"] .dot::after {
+.main-card[data-state="checking"] .state-icon { color: var(--primary); }
+.main-card[data-state="checking"] .state-icon::after {
   background: var(--primary);
   animation: dotPing 1.6s var(--ease-out) infinite;
 }
@@ -269,24 +301,15 @@ body {
   }
 }
 
-/* on the two filled states the dot is white like the text, with a soft
+/* on the two filled states the icon is white like the text, with a soft
    white halo */
-.main-card[data-state="inactive"] .dot {
-  background: var(--card-inactive-ink);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
-}
-.main-card[data-state="inactive"] .dot::after {
+.main-card[data-state="inactive"] .state-icon::after {
   background: #ffffff;
-  animation: dotHalo 900ms var(--ease-out) 1;
+  animation: dotHalo 280ms var(--ease-out) 1;
 }
-.main-card[data-state="active"] .dot {
-  background: var(--card-active-ink);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
-  animation: dotBreath 2.8s ease-in-out 600ms infinite;
-}
-.main-card[data-state="active"] .dot::after {
+.main-card[data-state="active"] .state-icon::after {
   background: #ffffff;
-  animation: dotHalo 900ms var(--ease-out) 1;
+  animation: dotHalo 280ms var(--ease-out) 1;
 }
 
 /* disconnected — neutral (the user paused the link). Same quiet surface as
@@ -300,15 +323,14 @@ body {
   cursor: default;
   box-shadow: var(--shadow-card), var(--highlight);
 }
-.main-card[data-state="disconnected"] .dot {
-  background: var(--text-muted);
-  box-shadow: 0 0 0 3px rgba(95, 99, 104, 0.14);
-}
+.main-card[data-state="disconnected"] .state-icon { color: var(--text-muted); }
 
 .main-card:active:not([aria-disabled="true"]) {
   transform: scale(0.985);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18);
 }
+/* In-flight (probing / dialing): the card is a progress surface, not a button. */
+.main-card[aria-busy="true"] { cursor: progress; }
 .main-card:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -325,7 +347,10 @@ body {
   50% { opacity: 0.35; }
 }
 
-/* Expanding ring for the probing dot (halo, not just an opacity dip). */
+/* Spinner for the probing icon (transform-only rotation). */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Expanding ring for the probing icon (halo, not just an opacity dip). */
 @keyframes dotPing {
   0%   { transform: scale(1);   opacity: 0.55; }
   100% { transform: scale(2.4); opacity: 0; }
@@ -335,12 +360,6 @@ body {
 @keyframes dotHalo {
   0%   { transform: scale(1);   opacity: 0.8; }
   100% { transform: scale(2.8); opacity: 0; }
-}
-
-/* Slow "live channel" breathing on the active dot. */
-@keyframes dotBreath {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.62; }
 }
 
 @keyframes riseIn {
@@ -357,26 +376,30 @@ body {
  * can't run yet) / busy (transient skeleton while diagnosing). */
 
 .wizard {
-  margin-top: 10px;
-  padding: 12px;
-  animation: riseIn 240ms var(--ease-out) backwards;
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  /* Expand / collapse is an opacity+transform fade (no layout animation).
+     popup.js adds .leaving, waits --dur-leave, then sets the hidden class. */
+  transition: opacity var(--dur-leave) var(--ease-out),
+              transform var(--dur-leave) var(--ease-out);
 }
+.wizard.leaving { opacity: 0; transform: translateY(-4px); }
 
 .wiz-rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .wiz-row {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
   background: var(--surface-2);
   /* Entrances stagger 40ms per row (capped); state tint crossfades. */
-  animation: rowIn 240ms var(--ease-out) backwards;
+  animation: rowIn var(--dur-enter) var(--ease-out) backwards;
   transition: background-color var(--dur-state) var(--ease-out),
               border-color var(--dur-state) var(--ease-out),
               box-shadow var(--dur-state) var(--ease-out);
@@ -401,7 +424,7 @@ body {
 .wiz-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .wiz-icon {
@@ -414,7 +437,7 @@ body {
   justify-content: center;
   background: var(--bg);
   border: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   line-height: 1;
   color: var(--text-muted);
@@ -444,54 +467,56 @@ body {
 .wiz-row[data-state="bad"] .wiz-icon svg path {
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
-  animation: drawIcon 340ms var(--ease-out) 40ms forwards;
+  animation: drawIcon 280ms var(--ease-out) 40ms forwards;
 }
 
 .wiz-name {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--text);
 }
 
 .wiz-fix {
-  margin-top: 6px;
+  margin-top: var(--sp-2);
   display: grid;
-  gap: 5px;
+  gap: var(--sp-2);
 }
 
 .wiz-step {
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--text);
 }
 
 .wiz-step code {
   display: inline-block;
-  padding: 0 4px;
+  padding: 0 var(--sp-1);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  font: 10.5px/1.5 var(--mono);
+  border-radius: var(--r-1);
+  font: var(--fs-sm)/1.5 var(--mono);
   color: var(--text);
   word-break: break-all;
 }
 
-/* Command rows — code box with the copy button embedded at its right edge
-   (GitHub-style). No inline label, no text button. */
+/* Command rows — code box with the copy action filling its right edge
+   (GitHub-style). The button is a real 44px target, not a 22px icon. */
 .wiz-cmd {
   display: block;
   position: relative;
 }
 
 .wiz-cmd code {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 6px 34px 6px 9px;   /* right pad clears the floating copy button */
+  min-height: var(--tap);
+  padding: var(--sp-1) calc(var(--tap) + var(--sp-2)) var(--sp-1) var(--sp-2); /* right pad clears the button */
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  font: 10.5px/1.5 var(--mono);
+  border-radius: var(--r-2);
+  font: var(--fs-sm)/1.5 var(--mono);
   color: var(--text);
   word-break: break-all;
   box-sizing: border-box;
@@ -502,18 +527,19 @@ body {
 
 .wiz-cmd .copy-btn {
   position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
-  width: 22px;
-  height: 22px;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--tap);
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  font: inherit;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0 calc(var(--r-2) - 1px) calc(var(--r-2) - 1px) 0;
   color: var(--text-muted);
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out),
@@ -526,38 +552,42 @@ body {
   .wiz-cmd .copy-btn:hover { background: var(--surface-2); color: var(--primary); }
 }
 /* Immediate pointer-down feedback (motion-craft: feedback at press, not click). */
-.wiz-cmd .copy-btn.is-pressing { transform: translateY(-50%) scale(0.9); }
+.wiz-cmd .copy-btn.is-pressing { transform: scale(0.94); }
+.wiz-cmd .copy-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .wiz-cmd .copy-btn.copied {
   color: var(--success);
   border-color: var(--ok-border);
-  animation: copyPop 320ms var(--ease-out);
+  animation: copyPop 280ms var(--ease-out);
 }
 .wiz-cmd .copy-btn.copied svg path {
   stroke-dasharray: 26;
   stroke-dashoffset: 26;
-  animation: drawIcon 300ms var(--ease-out) 40ms forwards;
+  animation: drawIcon 280ms var(--ease-out) 40ms forwards;
 }
 .wiz-cmd .copy-btn.copy-failed { color: var(--error); border-color: var(--err-border); }
 .wiz-cmd .copy-btn:disabled { opacity: 0.6; cursor: default; }
 
 .wiz-note {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
 }
 
 /* Repo link — quiet muted pointer under the start commands (last fix row in
- * the daemon block). Sits on its own line, opens in a new tab. */
+ * the daemon block). Own line, opens in a new tab, 44px target. */
 .wiz-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
   justify-self: start;
   width: fit-content;
   max-width: 100%;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--text-muted);
   text-decoration: underline;
   text-decoration-color: var(--border-strong);
   text-underline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   transition: color var(--dur-fast) var(--ease-out),
               text-decoration-color var(--dur-fast) var(--ease-out);
 }
@@ -569,11 +599,11 @@ body {
 
 .wiz-rawerr {
   display: block;
-  padding: 4px 7px;
+  padding: var(--sp-1) var(--sp-2);
   background: var(--bg);
   border: 1px solid var(--err-border);
-  border-radius: 6px;
-  font: 10.5px/1.5 var(--mono);
+  border-radius: var(--r-1);
+  font: var(--fs-sm)/1.5 var(--mono);
   color: var(--error);
   word-break: break-all;
   max-height: 80px;
@@ -585,23 +615,29 @@ body {
  * transparent fill, hairline border, muted small text — it never competes
  * with the card above. Hidden (no placeholder) unless it has a job. */
 .conn-btn {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: fit-content;
   max-width: 100%;
-  margin: 8px auto 0;
-  padding: 4px 13px;
+  min-height: var(--tap);
+  margin: var(--sp-2) auto 0;
+  padding: 0 var(--sp-4);
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   color: var(--text-muted);
-  font: 500 11.5px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: 1.4;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out),
               border-color var(--dur-fast) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out),
               transform var(--dur-fast) var(--ease-out);
-  animation: riseIn 220ms var(--ease-out) backwards;
+  animation: riseIn var(--dur-enter) var(--ease-out) backwards;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -621,18 +657,18 @@ body {
 /* ---------- result card (friendly confirmation, ok) ---------- */
 
 .result {
-  margin: 10px 0 0;
-  padding: 10px 12px;
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-4);
   background: var(--surface-2);
   color: var(--text);
-  font: 11px/1.5 var(--mono);
+  font: var(--fs-sm)/1.5 var(--mono);
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 150px;
   overflow: auto;
-  animation: riseIn 240ms var(--ease-out) backwards;
+  animation: riseIn var(--dur-enter) var(--ease-out) backwards;
 }
 
 .result.ok {
@@ -655,7 +691,7 @@ body {
   background-color: var(--border-strong);
   background-clip: padding-box;
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 .result::-webkit-scrollbar-thumb:hover,
 .wiz-rawerr::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); }
@@ -673,9 +709,9 @@ body {
 }
 
 @keyframes copyPop {
-  0%   { transform: translateY(-50%) scale(0.82); }
-  55%  { transform: translateY(-50%) scale(1.12); }
-  100% { transform: translateY(-50%) scale(1); }
+  0%   { transform: scale(0.86); }
+  55%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
 }
 
 /* ---------- RTL (Arabic) ----------
@@ -691,9 +727,8 @@ html[dir="rtl"] textarea {
 }
 
 /* ---------- reduced motion ----------
- * Fewer and gentler, never zero: spatial movement and looping halos stop,
- * while colour / opacity state changes (the feedback that carries meaning)
- * remain, just faster. */
+ * Fully still: no entrance, no halo, no spinner, no looping pulse, no
+ * transition. State is still communicated by colour, icon shape and text. */
 @media (prefers-reduced-motion: reduce) {
   .main-card,
   .main-card[data-state="inactive"],
@@ -707,20 +742,19 @@ html[dir="rtl"] textarea {
   .result { animation: none; }
 
   .main-card,
-  .main-card .dot,
+  .main-card .state-icon,
+  .wizard,
   .wiz-row,
   .wiz-icon,
   .conn-btn,
   .wiz-cmd code,
   .wiz-cmd .copy-btn,
-  .wiz-link {
-    transition-duration: 120ms;
-  }
+  .wiz-link { transition: none; }
 
-  .main-card[data-state="checking"] .dot::after,
-  .main-card[data-state="inactive"] .dot::after,
-  .main-card[data-state="active"] .dot::after { animation: none; opacity: 0; }
-  .main-card[data-state="active"] .dot { animation: none; }
+  .main-card[data-state="checking"] .state-icon::after,
+  .main-card[data-state="inactive"] .state-icon::after,
+  .main-card[data-state="active"] .state-icon::after { animation: none; opacity: 0; }
+  .main-card[data-state="checking"] .si-spin { animation: none; }
   .wiz-row[data-state="busy"] .wiz-icon { animation: none; }
   .wiz-row[data-state="ok"] .wiz-icon svg path,
   .wiz-row[data-state="bad"] .wiz-icon svg path,

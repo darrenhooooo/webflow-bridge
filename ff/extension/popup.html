@@ -18,9 +18,20 @@
        / active（绿底「已激活」，点击做一次真实 evaluate → 友好绿卡）。
        daemon / Firefox 细粒度状态灯已随此终版移除（状态由整卡承担，明细见激活清单）；
        版本只保留头部一处；端口 / 本地 daemon 行已去掉。 -->
-  <div id="mainCard" role="button" tabindex="0" aria-disabled="true"
+  <div id="mainCard" role="button" tabindex="0" aria-disabled="true" aria-busy="true"
        class="card main-card" data-state="checking">
-    <span class="dot main-dot" aria-hidden="true"></span>
+    <!-- 单一图标位，三态由 CSS 切换：spinner=探测中，alert=未激活，check=已激活。
+         状态词本身已表意，图标让状态不依赖颜色也能一眼区分。 -->
+    <span class="state-icon" aria-hidden="true">
+      <svg class="si si-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 1-6.4 2.6"/></svg>
+      <svg class="si si-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5h.01"/></svg>
+      <svg class="si si-check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/></svg>
+    </span>
     <span id="mainWord" class="main-word">Checking…</span>
   </div>
   <div class="err-line main-err" id="status-err" hidden></div>
@@ -53,14 +64,14 @@
       <button id="btn-exec" type="button" class="primary" data-i18n="btn_exec">执行</button>
       <button id="btn-clear" type="button" class="ghost" data-i18n="btn_clear">清空</button>
     </div>
-    <pre id="result" class="result" hidden></pre>
+    <pre id="result" class="result" role="status" aria-live="polite" hidden></pre>
     <div id="history" class="history" hidden>
       <div class="h2line" data-i18n="h2_history">最近执行</div>
       <div id="history-list"></div>
     </div>
 
     <!-- 动作失败引导卡（快捷操作专用；激活流程由上方「激活清单」覆盖） -->
-    <div id="act-guide" class="act-guide" hidden>
+    <div id="act-guide" class="act-guide" role="status" aria-live="polite" hidden>
       <div class="act-head">
         <span id="actDot" class="dot" data-state="down"></span>
         <h3 id="guideTitle" class="act-title"></h3>

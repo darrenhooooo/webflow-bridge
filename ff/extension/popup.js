@@ -320,8 +320,23 @@ function addReasonRow(reason) {
   list.insertBefore(li, list.firstChild);   // 首行
 }
 
-function showWizard() { $('wizard').hidden = false; }
-function hideWizard() { $('wizard').hidden = true; }
+function showWizard() {
+  clearTimeout(hideWizard._t);
+  $('wizard').hidden = false;
+  requestAnimationFrame(() => $('wizard').classList.remove('leaving'));
+}
+// 收起用 opacity+transform 淡出，再置 hidden；reduced-motion 下直接隐藏。
+function hideWizard() {
+  const el = $('wizard');
+  if (el.hidden) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.hidden = true;
+    el.classList.remove('leaving');
+    return;
+  }
+  el.classList.add('leaving');
+  hideWizard._t = setTimeout(() => { el.hidden = true; el.classList.remove('leaving'); }, 180);
+}
 
 /* ---------- 基础 fetch（带超时，永不抛出） ---------- */
 
@@ -469,23 +484,33 @@ function setActBtn(s) {
   const c = $('mainCard');
   c.dataset.state = s;
   c.setAttribute('aria-disabled', (s === 'checking') ? 'true' : 'false');
+  c.setAttribute('aria-busy', (s === 'checking') ? 'true' : 'false');
   $('mainWord').textContent = (s === 'checking') ? T('checking')
                              : (s === 'active') ? T('active') : T('inactive');
 }
 
 // 由真实状态推导：daemon 在线 + Firefox 已连（probe connected）→ Active；
 // 首轮探测未回 / daemon 在但 probe 未返回 → Checking…；其余 → Inactive（红底）。
+// 进入 Inactive 时自动展开激活清单（引导只在需要时出现）。
 function updateActBtn() {
   if (actBusy) return;
-  if (daemonUp && bridgeInfo && bridgeInfo.connected === true) {
-    setActBtn('active');
-  } else if (daemonUp === null ||
-             (daemonUp && bridgeInfo === null && bridgeErr === '')) {
-    setActBtn('checking');
-  } else {
-    setActBtn('inactive');
+  const prev = actState;
+  let next;
+  if (daemonUp && bridgeInfo && bridgeInfo.connected === true) next = 'active';
+  else if (daemonUp === null ||
+           (daemonUp && bridgeInfo === null && bridgeErr === '')) next = 'checking';
+  else next = 'inactive';
+  setActBtn(next);
+  if (next === 'active' && prev !== 'active') hideWizard();
+  if (next === 'inactive' && prev !== 'inactive' && $('wizard').hidden && !autoDiagWanted) {
+    autoDiagWanted = true;
+    setTimeout(() => {
+      autoDiagWanted = false;
+      if (actState === 'inactive' && $('wizard').hidden) runDiagnosis();
+    }, 0);
   }
 }
+let autoDiagWanted = false;
 
 /* ---------- 激活清单诊断（逐行真值，绝不虚构） ---------- */
 // 每次诊断都实时 fetch /config + POST probe + （必要时）evaluate 一次。
@@ -791,7 +816,16 @@ async function listTabs() {
     if (t.active) meta.classList.add('t-active');
     li.appendChild(title); li.appendChild(url); li.appendChild(meta);
     li.title = T('tab_click_hint');
+    // 键盘可达：列表项即动作按钮，Tab 聚焦、Enter / Space 触发。
+    li.tabIndex = 0;
+    li.setAttribute('role', 'button');
     li.addEventListener('click', () => queryTabTitle(t));
+    li.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        guardExec(() => queryTabTitle(t));
+      }
+    });
     ul.appendChild(li);
   }
 }
@@ -831,9 +865,10 @@ async function copyCmd(btn) {
   if (btn.disabled) return;
   const ok = await clipboardWrite(btn.dataset.cmd || '');
   btn.classList.toggle('copied', ok);
+  btn.classList.toggle('copy-failed', !ok);
   btn.disabled = true;
   setTimeout(() => {
-    btn.classList.remove('copied');
+    btn.classList.remove('copied', 'copy-failed');
     btn.disabled = false;
   }, 1500);
 }

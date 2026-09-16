@@ -85,6 +85,7 @@
     mainCard.dataset.state = s;
     mainCard.setAttribute('aria-disabled',
                           (s === 'checking' || s === 'disconnected') ? 'true' : 'false');
+    mainCard.setAttribute('aria-busy', s === 'checking' ? 'true' : 'false');
     mainWord.textContent = (s === 'checking') ? T('checking')
                          : (s === 'disconnected') ? T('disconnected')
                          : (s === 'active') ? T('active') : T('inactive');
@@ -117,8 +118,27 @@
     resultEl.classList.add('hidden');
   }
 
-  function showWizard() { wizardEl.classList.remove('hidden'); }
-  function hideWizard() { wizardEl.classList.add('hidden'); }
+  // Expand / collapse fade (opacity + transform only). Collapse waits for the
+  // --dur-leave transition before flipping display, so nothing jumps.
+  let wizHideTimer = 0;
+  function showWizard() {
+    clearTimeout(wizHideTimer);
+    wizardEl.classList.remove('hidden');
+    requestAnimationFrame(() => wizardEl.classList.remove('leaving'));
+  }
+  function hideWizard() {
+    if (wizardEl.classList.contains('hidden')) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      wizardEl.classList.add('hidden');
+      wizardEl.classList.remove('leaving');
+      return;
+    }
+    wizardEl.classList.add('leaving');
+    wizHideTimer = setTimeout(() => {
+      wizardEl.classList.add('hidden');
+      wizardEl.classList.remove('leaving');
+    }, 180);
+  }
 
   // Wrap chrome.runtime.sendMessage so a missing receiver / thrown error
   // becomes a normal {ok:false, error} reply instead of an exception.
@@ -423,9 +443,15 @@
       const before = lastCoarse;
       const st = await refreshPing();
       const after = coarseKey(st);
-      if (after !== before && before !== '' && !busy && !suspended &&
-          !wizardEl.classList.contains('hidden')) {
-        await diagnose();          // open checklist follows the new live state
+      if (after !== before && before !== '' && !busy) {
+        // Follow the live state: active collapses the guidance, everything
+        // else (inactive / disconnected) expands it again.
+        if (suspended || state === 'active') {
+          hideWizard();
+          hideResult();
+        } else {
+          await diagnose();
+        }
       }
     } catch (_) {
       /* the timer must never surface an uncaught exception */
@@ -530,8 +556,9 @@
 
   async function onMainClick() {
     // checking = probing; disconnected = the Reconnect button is the only
-    // entry back, so the card itself deliberately does nothing.
-    if (state === 'checking' || state === 'disconnected') return;
+    // entry back, so the card itself deliberately does nothing. `busy` also
+    // guards against a second click while the first flow is still running.
+    if (state === 'checking' || state === 'disconnected' || busy) return;
     busy++;                     // block the poll timer for the whole click flow
     try {
       hideResult();
@@ -597,8 +624,12 @@
   }
 
   // Initial load: probe once; the card lands on Active (green) or Inactive (red).
+  // An inactive card immediately opens the checklist — guidance only shows
+  // when it is actually needed; Active stays compact.
   setActState('checking');
-  refreshPing();
+  refreshPing().then(() => {
+    if (state === 'inactive') diagnose();
+  });
   mainCard.addEventListener('click', onMainClick);
   mainCard.addEventListener('keydown', (ev) => {
     // role=button: Enter / Space activate the whole card like a button.
