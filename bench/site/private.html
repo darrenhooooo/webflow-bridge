@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bench Private</title></head>
+<body>
+<h1>Private</h1>
+<p id="secret"></p>
+<script>
+document.getElementById('secret').textContent =
+  document.cookie.indexOf('bench_session=ok') !== -1 ? 'SECRET-OK' : 'DENIED';
+</script>
+</body>
+</html>

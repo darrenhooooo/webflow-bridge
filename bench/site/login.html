@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bench Login</title></head>
+<body>
+<h1>Login</h1>
+<form id="lf">
+  <input id="user" type="text" placeholder="user">
+  <input id="pass" type="password" placeholder="pass">
+  <button id="go" type="submit">Go</button>
+</form>
+<p id="msg"></p>
+<script>
+document.getElementById('lf').addEventListener('submit', function (e) {
+  e.preventDefault();
+  if (document.getElementById('user').value && document.getElementById('pass').value) {
+    document.cookie = 'bench_session=ok; path=/';
+    document.getElementById('msg').innerHTML = '<a id="private" href="private.html">private</a>';
+  }
+});
+</script>
+</body>
+</html>

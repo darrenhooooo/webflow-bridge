@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bench Form</title></head>
+<body>
+<h1>Form</h1>
+<form id="f">
+  <input id="name" name="name" type="text" placeholder="name">
+  <input id="email" name="email" type="email" placeholder="email">
+  <select id="plan" name="plan">
+    <option value="basic">basic</option>
+    <option value="pro">pro</option>
+  </select>
+  <textarea id="note" name="note"></textarea>
+  <button id="submit" type="submit">Submit</button>
+</form>
+<p id="result"></p>
+<script>
+document.getElementById('f').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var name = document.getElementById('name').value;
+  var email = document.getElementById('email').value;
+  var plan = document.getElementById('plan').value;
+  document.getElementById('result').textContent = 'OK:' + name + '|' + email + '|' + plan;
+});
+</script>
+</body>
+</html>

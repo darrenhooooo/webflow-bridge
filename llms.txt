@@ -41,6 +41,7 @@ A thin stdio MCP server in `mcp/` exposes five tools — `wf_evaluate`, `wf_cdp`
 - `README.md` — product overview, install, common issues, supported platforms.
 - `docs/INSTALL.md` — full install, launchd/systemd, ports and tokens, uninstall, troubleshooting.
 - `docs/HTTP_API.md` — the `POST /command` contract with one curl per action.
+- `docs/BENCH.md` — a reproducible head-to-head benchmark against an LLM browser agent, with raw logs and caveats.
 - `docs/MCP.md` — MCP server and per-client registration.
 - `docs/AGENTS.md` — three-step agent onboarding and common agent pitfalls.
 - `docs/PRIVACY.md` — privacy policy.

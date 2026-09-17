@@ -1,0 +1,367 @@
+{
+  "measured_at": "2026-09-17T14:41:44",
+  "site": "http://127.0.0.1:8901/",
+  "separate_from": "out/summary.md's A/B end-to-end table — these token numbers are representation size only, not latency and not success rate",
+  "tokenizer": {
+    "primary": "tiktoken cl100k_base",
+    "sensitivity": "tiktoken o200k_base",
+    "proxy": true,
+    "why": "DeepSeek does not publish its production tokenizer as a pip-installable counter, so both counts are PROXY COUNTS produced by tiktoken BPE encodings and are NOT DeepSeek's own token counts. Absolute numbers will differ from DeepSeek's tokenizer by some percentage; what is being compared here is the relative size of the three representations of the same page text. o200k_base is reported alongside cl100k_base purely as a sensitivity check on that uncertainty."
+  },
+  "definitions": {
+    "a_browseruse_tree": "browser-use's serialized interactive-element / accessibility tree: `get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()`, the text side B's prompt is built from. Measured at the task's START page.",
+    "b_wb_snapshot": "Webflow Bridge `POST /command {action:'snapshot'}` return `value`, JSON-serialized. Measured at the task's START page.",
+    "c_decisive_evaluate": "the single `evaluate` the shared harness/judge.py reads to decide the task, JSON-serialized. The decisive evaluate is the call whose returned payload the judge actually compares: for T6 that is the call that returned 'Hello Bench' on the new tab; for every other task the judge makes exactly one evaluate, so it is the last recorded call. Tasks whose judge reads a local file instead (T8/T9) make no evaluate call and their decisive representation cost is 0 tokens by construction."
+  },
+  "tasks": {
+    "T1": {
+      "page": "hello.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 4,
+        "tokens_o200k": 4,
+        "chars": 17,
+        "interactive_elements": 0,
+        "sample": "Hello Bench\nready",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 45,
+        "tokens_o200k": 44,
+        "chars": 104,
+        "nodes": 0,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/hello.html\", \"title\": \"Bench Hello\", \"total\": 0, \"start\": 0, \"nodes\": []}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 4,
+        "tokens_o200k": 4,
+        "chars": 13,
+        "value": "Hello Bench",
+        "expr": "document.querySelector('h1') ? document.querySelector('h1').textContent.trim() : ''",
+        "sample": "\"Hello Bench\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "h1='Hello Bench'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T2": {
+      "page": "form.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 110,
+        "tokens_o200k": 111,
+        "chars": 410,
+        "interactive_elements": 5,
+        "sample": "Form\n|SHADOW(open)|[19]<input id=name name=name type=text placeholder=name />\n|SHADOW(open)|[20]<input id=email name=email type=email placeholder=email />\n|SHADOW(open)|*[21]<select id=plan name=plan expanded=false compound_components=(name",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 288,
+        "tokens_o200k": 287,
+        "chars": 783,
+        "nodes": 5,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/form.html\", \"title\": \"Bench Form\", \"total\": 5, \"start\": 0, \"nodes\": [{\"name\": \"name\", \"path\": \"form:nth-of-type(1) > input:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"textbox\", \"tag\": \"input\", \"text\": \"\"}, {\"name\"",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 11,
+        "tokens_o200k": 11,
+        "chars": 28,
+        "value": "OK:Ada|ada@example.com|pro",
+        "expr": "document.querySelector('#result') ? document.querySelector('#result').textContent : null",
+        "sample": "\"OK:Ada|ada@example.com|pro\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "#result='OK:Ada|ada@example.com|pro'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T3": {
+      "page": "list.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 52,
+        "tokens_o200k": 52,
+        "chars": 104,
+        "interactive_elements": 1,
+        "sample": "List\n[86]<button id=next />\n\tNext\nItem 1\nItem 2\nItem 3\nItem 4\nItem 5\nItem 6\nItem 7\nItem 8\nItem 9\nItem 10",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 83,
+        "tokens_o200k": 82,
+        "chars": 212,
+        "nodes": 1,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/list.html\", \"title\": \"Bench List\", \"total\": 1, \"start\": 0, \"nodes\": [{\"name\": \"\", \"path\": \"button:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"button\", \"tag\": \"button\", \"text\": \"Next\"}]}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 50,
+        "tokens_o200k": 50,
+        "chars": 101,
+        "value": [
+          "Item 1",
+          "Item 2",
+          "Item 3",
+          "Item 4",
+          "Item 5",
+          "Item 6",
+          "Item 7",
+          "Item 8",
+          "Item 9",
+          "Item 10"
+        ],
+        "expr": "[...document.querySelectorAll('.item')].slice(0, 10).map(e => e.textContent.trim())",
+        "sample": "[\"Item 1\", \"Item 2\", \"Item 3\", \"Item 4\", \"Item 5\", \"Item 6\", \"Item 7\", \"Item 8\", \"Item 9\", \"Item 10\"]"
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "first10=['Item 1', 'Item 2', 'Item 3', 'Item 4', 'Item 5', 'Item 6', 'Item 7', 'Item 8', 'Item 9', 'Item 10']",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T4": {
+      "page": "dialog.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 14,
+        "tokens_o200k": 14,
+        "chars": 42,
+        "interactive_elements": 1,
+        "sample": "Dialog\n[184]<button id=ask />\n\tAsk\nwaiting",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 83,
+        "tokens_o200k": 82,
+        "chars": 215,
+        "nodes": 1,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/dialog.html\", \"title\": \"Bench Dialog\", \"total\": 1, \"start\": 0, \"nodes\": [{\"name\": \"\", \"path\": \"button:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"button\", \"tag\": \"button\", \"text\": \"Ask\"}]}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 3,
+        "tokens_o200k": 3,
+        "chars": 10,
+        "value": "accepted",
+        "expr": "document.querySelector('#status') ? document.querySelector('#status').textContent : null",
+        "sample": "\"accepted\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "#status='accepted'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T5": {
+      "page": "upload.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 40,
+        "tokens_o200k": 40,
+        "chars": 161,
+        "interactive_elements": 1,
+        "sample": "Upload\n|SHADOW(open)|*[206]<input id=file type=file compound_components=(name=Browse Files,role=button),(name=File Selected,role=textbox,current=None) />\nwaiting",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 84,
+        "tokens_o200k": 83,
+        "chars": 215,
+        "nodes": 1,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/upload.html\", \"title\": \"Bench Upload\", \"total\": 1, \"start\": 0, \"nodes\": [{\"name\": \"file\", \"path\": \"input:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"textbox\", \"tag\": \"input\", \"text\": \"\"}]}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 4,
+        "tokens_o200k": 4,
+        "chars": 12,
+        "value": "sample.txt",
+        "expr": "document.querySelector('#picked') ? document.querySelector('#picked').textContent : null",
+        "sample": "\"sample.txt\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "#picked='sample.txt'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T6": {
+      "page": "tabs.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 11,
+        "tokens_o200k": 11,
+        "chars": 29,
+        "interactive_elements": 1,
+        "sample": "Tabs\n[247]<a id=open />\n\tOpen",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 84,
+        "tokens_o200k": 83,
+        "chars": 200,
+        "nodes": 1,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/tabs.html\", \"title\": \"Bench Tabs\", \"total\": 1, \"start\": 0, \"nodes\": [{\"name\": \"\", \"path\": \"a:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"link\", \"tag\": \"a\", \"text\": \"Open\"}]}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 4,
+        "tokens_o200k": 4,
+        "chars": 13,
+        "value": "Hello Bench",
+        "expr": "document.querySelector('h1') ? document.querySelector('h1').textContent.trim() : ''",
+        "sample": "\"Hello Bench\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "new tab h1='Hello Bench'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T7": {
+      "page": "list.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 52,
+        "tokens_o200k": 52,
+        "chars": 105,
+        "interactive_elements": 1,
+        "sample": "List\n[251]<button id=next />\n\tNext\nItem 1\nItem 2\nItem 3\nItem 4\nItem 5\nItem 6\nItem 7\nItem 8\nItem 9\nItem 10",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 83,
+        "tokens_o200k": 82,
+        "chars": 212,
+        "nodes": 1,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/list.html\", \"title\": \"Bench List\", \"total\": 1, \"start\": 0, \"nodes\": [{\"name\": \"\", \"path\": \"button:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"button\", \"tag\": \"button\", \"text\": \"Next\"}]}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 3,
+        "tokens_o200k": 3,
+        "chars": 3,
+        "value": "3",
+        "expr": "document.querySelector('#page') ? document.querySelector('#page').textContent : null",
+        "sample": "\"3\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "#page='3'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    },
+    "T8": {
+      "page": "hello.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 4,
+        "tokens_o200k": 4,
+        "chars": 17,
+        "interactive_elements": 0,
+        "sample": "Hello Bench\nready",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 45,
+        "tokens_o200k": 44,
+        "chars": 104,
+        "nodes": 0,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/hello.html\", \"title\": \"Bench Hello\", \"total\": 0, \"start\": 0, \"nodes\": []}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 0,
+        "tokens_o200k": 0,
+        "chars": 0,
+        "value": null,
+        "note": "0 — no evaluate; judge reads a local file"
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "T8.png ok (8933B)",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 0
+      },
+      "error": null
+    },
+    "T9": {
+      "page": "hello.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 4,
+        "tokens_o200k": 4,
+        "chars": 17,
+        "interactive_elements": 0,
+        "sample": "Hello Bench\nready",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 45,
+        "tokens_o200k": 44,
+        "chars": 104,
+        "nodes": 0,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/hello.html\", \"title\": \"Bench Hello\", \"total\": 0, \"start\": 0, \"nodes\": []}",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 0,
+        "tokens_o200k": 0,
+        "chars": 0,
+        "value": null,
+        "note": "0 — no evaluate; judge reads a local file"
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "T9.pdf ok (9089B)",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 0
+      },
+      "error": null
+    },
+    "T10": {
+      "page": "login.html",
+      "a_browseruse_tree": {
+        "tokens_cl100k": 49,
+        "tokens_o200k": 49,
+        "chars": 175,
+        "interactive_elements": 3,
+        "sample": "Login\n|SHADOW(open)|[381]<input id=user type=text placeholder=user />\n|SHADOW(open)|[382]<input id=pass type=password placeholder=pass />\n[383]<button id=go type=submit />\n\tGo",
+        "exact_payload": "BrowserSession.get_browser_state_summary(include_screenshot=False).dom_state.llm_representation()"
+      },
+      "b_wb_snapshot": {
+        "tokens_cl100k": 189,
+        "tokens_o200k": 188,
+        "chars": 500,
+        "nodes": 3,
+        "sample": "{\"url\": \"http://127.0.0.1:8901/login.html\", \"title\": \"Bench Login\", \"total\": 3, \"start\": 0, \"nodes\": [{\"name\": \"user\", \"path\": \"form:nth-of-type(1) > input:nth-of-type(1)\", \"ref\": \"@e0\", \"role\": \"textbox\", \"tag\": \"input\", \"text\": \"\"}, {\"nam",
+        "exact_payload": "the `value` object of the snapshot reply, JSON-serialized (the reply envelope is harness overhead, not the representation)"
+      },
+      "c_decisive_evaluate": {
+        "tokens_cl100k": 5,
+        "tokens_o200k": 5,
+        "chars": 11,
+        "value": "SECRET-OK",
+        "expr": "document.querySelector('#secret') ? document.querySelector('#secret').textContent : null",
+        "sample": "\"SECRET-OK\""
+      },
+      "measurement_context": {
+        "judge_ok": true,
+        "judge_detail": "#secret='SECRET-OK'",
+        "side_a_sequence_error": null,
+        "evaluate_calls": 1
+      },
+      "error": null
+    }
+  }
+}

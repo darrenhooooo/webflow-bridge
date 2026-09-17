@@ -53,6 +53,10 @@ It drives **one tab at a time** and never steals your cursor or focus — you ca
 
 What sets it apart: it drives the browser you already have open and logged in — the same profile, the same cookies, the same session — through browser-extension permissions plus a local token. Nothing leaves your machine, and no remote-debugging port is left open for other local processes to use. On Firefox it likewise targets your real, everyday profile rather than a separate automation build.
 
+## Measured, not claimed
+
+On ten scripted browser tasks (three runs each, same machine), the fixed-command path finished 30/30 runs in 11.0 s total with zero model tokens; an agent framework driving a browser with an LLM finished 27/30 in 915 s using 1.5 M prompt tokens. Method, raw logs, and the honest caveats: [docs/BENCH.md](docs/BENCH.md) and [bench/](bench/).
+
 ---
 
 ## Install

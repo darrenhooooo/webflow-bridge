@@ -10,3 +10,7 @@ build/
 node_modules/
 .pi_*
 .pi/
+bench/logs/
+bench/out/
+bench/envs/
+bench/.venv/

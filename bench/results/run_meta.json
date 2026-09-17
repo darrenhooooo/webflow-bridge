@@ -1,0 +1,100 @@
+{
+  "run_id": "20260917-144146",
+  "tasks": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10"
+  ],
+  "sides": [
+    "a",
+    "b"
+  ],
+  "reps": 3,
+  "task_timeout_s": 120.0,
+  "task_timeout_is_failure": true,
+  "retries": 0,
+  "retry_policy": "none on either side: a failure/timeout is recorded as a failure, it is never retried away",
+  "site_port": 8901,
+  "wb_http_port": 20086,
+  "wb_ws_port": 20087,
+  "wb_cdp_port": 20088,
+  "deadline_min": 35.0,
+  "started_at": "2026-09-17T14:41:46",
+  "software": {
+    "side_a": {
+      "product": "Webflow Bridge (daemon + extension)",
+      "extension_version": "1.3.0",
+      "daemon": "/path/to/webflow-bridge/daemon/webflow_bridge.py",
+      "llm": null
+    },
+    "side_b": {
+      "product": "browser-use agent",
+      "browser_use": "0.13.10",
+      "playwright": "1.63.0",
+      "model": "deepseek-flash",
+      "llm_client": "browser_use.ChatOpenAI -> DeepSeek OpenAI-compatible"
+    },
+    "python": "3.12.14",
+    "harness": "/path/to/wb-bench/harness"
+  },
+  "wb_ports_free_before": {
+    "20086": false,
+    "20087": false,
+    "20088": true
+  },
+  "rep_times": [
+    {
+      "side": "A",
+      "rep": 1,
+      "started_at": "2026-09-17T14:41:46",
+      "finished_at": "2026-09-17T14:41:52",
+      "seconds": 5.241
+    },
+    {
+      "side": "A",
+      "rep": 2,
+      "started_at": "2026-09-17T14:41:52",
+      "finished_at": "2026-09-17T14:41:57",
+      "seconds": 5.195
+    },
+    {
+      "side": "A",
+      "rep": 3,
+      "started_at": "2026-09-17T14:41:57",
+      "finished_at": "2026-09-17T14:42:02",
+      "seconds": 5.222
+    },
+    {
+      "side": "B",
+      "rep": 1,
+      "started_at": "2026-09-17T14:42:02",
+      "finished_at": "2026-09-17T14:46:47",
+      "seconds": 285.118
+    },
+    {
+      "side": "B",
+      "rep": 2,
+      "started_at": "2026-09-17T14:46:47",
+      "finished_at": "2026-09-17T14:51:24",
+      "seconds": 276.924
+    },
+    {
+      "side": "B",
+      "rep": 3,
+      "started_at": "2026-09-17T14:51:24",
+      "finished_at": "2026-09-17T14:57:19",
+      "seconds": 355.053
+    }
+  ],
+  "skipped": [],
+  "records": 60,
+  "deadline_hit": false,
+  "finished_at": "2026-09-17T14:57:19"
+}

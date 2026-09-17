@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bench Upload</title></head>
+<body>
+<h1>Upload</h1>
+<input id="file" type="file">
+<p id="picked"></p>
+<p id="upstatus">waiting</p>
+<script>
+document.getElementById('file').addEventListener('change', function (e) {
+  var f = e.target.files && e.target.files[0];
+  document.getElementById('picked').textContent = f ? f.name : '';
+});
+</script>
+</body>
+</html>

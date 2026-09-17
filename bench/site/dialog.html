@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Bench Dialog</title></head>
+<body>
+<h1>Dialog</h1>
+<button id="ask">Ask</button>
+<p id="status">waiting</p>
+<script>
+document.getElementById('ask').addEventListener('click', function () {
+  document.getElementById('status').textContent = confirm('proceed?') ? 'accepted' : 'dismissed';
+});
+</script>
+</body>
+</html>
