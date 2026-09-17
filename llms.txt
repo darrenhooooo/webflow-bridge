@@ -4,7 +4,7 @@
 
 ## What this is
 
-Webflow Bridge is a small Python daemon on your machine plus a Chrome/Edge extension (and a separate Firefox edition). Your scripts and AI agents POST JSON commands to the daemon, which drives the real, already-logged-in tab: your session, your cookies, your page state. Everything stays on your machine. The daemon is pure Python stdlib, binds to `127.0.0.1`, and needs no account, no cloud and no API key.
+Webflow Bridge is a small Python daemon on your machine plus a Chrome/Edge extension (and a separate Firefox edition). Your scripts and AI agents POST JSON commands to the daemon, which drives the real, already-logged-in tab: your session, your cookies, your page state. Everything stays on your machine. The daemon is pure Python stdlib, binds to `127.0.0.1`, and needs no account, no cloud and no API key. Commands can come from anything that speaks HTTP — cron, n8n, curl or a fixed script — so a run needs no model at all and can cost zero tokens (measured: `docs/BENCH.md`).
 
 ## Install (shortest path)
 

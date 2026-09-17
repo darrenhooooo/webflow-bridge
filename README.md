@@ -55,7 +55,17 @@ What sets it apart: it drives the browser you already have open and logged in â€
 
 ## Measured, not claimed
 
-On ten scripted browser tasks (three runs each, same machine), the fixed-command path finished 30/30 runs in 11.0 s total with zero model tokens; an agent framework driving a browser with an LLM finished 27/30 in 915 s using 1.5 M prompt tokens. Method, raw logs, and the honest caveats: [docs/BENCH.md](docs/BENCH.md) and [bench/](bench/).
+Same machine, ten scripted browser tasks, three runs each:
+
+| | fixed local commands, no model | an LLM agent driving a browser |
+|---|---|---|
+| model tokens | 0 | 1,518,312 prompt + 114,303 completion |
+| wall clock, 30 runs | 11.00 s | 915.15 s |
+| cost | $0 | $0.172496 (estimated, not an invoice) |
+
+On these ten tasks both sides' success rates were comparable â€” what differs is what a run costs and whether it repeats. A fixed `POST /command` sequence needs no model at all, so tokens and waiting time can go to zero; a path where the model decides every step has no such option.
+
+Scope, honestly: ten small local pages, so these numbers are not what a large production page costs, and the agent side is a version-pinned snapshot (browser-use 0.13.10) whose numbers move as it ships. Method, raw logs and every caveat: [docs/BENCH.md](docs/BENCH.md) and [bench/](bench/).
 
 ---
 
