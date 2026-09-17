@@ -1,0 +1,48 @@
+# Webflow Bridge
+
+> A local bridge that drives the browser tab you already have open and logged in — local only, no cloud, no accounts, no telemetry.
+
+## What this is
+
+Webflow Bridge is a small Python daemon on your machine plus a Chrome/Edge extension (and a separate Firefox edition). Your scripts and AI agents POST JSON commands to the daemon, which drives the real, already-logged-in tab: your session, your cookies, your page state. Everything stays on your machine. The daemon is pure Python stdlib, binds to `127.0.0.1`, and needs no account, no cloud and no API key.
+
+## Install (shortest path)
+
+1. Start the daemon from the repo root: `python3 daemon/webflow_bridge.py` (Windows: `py -3.11 daemon/webflow_bridge.py`).
+2. Load the `extension/` folder once at `chrome://extensions` or `edge://extensions` (Developer mode, Load unpacked). This manual step is the only one that needs a human.
+3. Point your scripts at `http://127.0.0.1:10086`. Full detail: `docs/INSTALL.md`.
+
+## Local HTTP contract
+
+- Base URL: `http://127.0.0.1:10086`
+- Endpoint: `POST /command` with `Content-Type: application/json; charset=utf-8`
+- Auth: the shared token file at `~/.webflow_bridge/token`, sent on every request as an `Authorization: Bearer` header
+- Body: `{"action": ..., "args": {...}, "session": "default"}` — the daemon answers `session` only as `"default"`
+- Success is `{"status": "ok", "data": {"value": ...}}`; failure shapes include `403` cross-origin POST blocked, `401` bad token, `503` extension not connected
+
+## Actions
+
+One JSON `POST /command` surface for 30+ browser actions — page reads and JS (`evaluate`, `cdp`), navigation and tabs (`navigate`, `tabs_list`, `tabs_open`, `find_tab`, ...), interaction (`click`, `fill`, `snapshot`, `type_text`, `send_key`, `mouse_click`, `upload`), capture (`screenshot`, `save_as_pdf`), and native dialogs (`handle_dialog`, `set_dialog_policy`). The full list, one curl per action, is in `docs/HTTP_API.md`.
+
+## MCP
+
+A thin stdio MCP server in `mcp/` exposes five tools — `wf_evaluate`, `wf_cdp`, `wf_navigate`, `wf_tabs_list`, `wf_tabs_activate`; register it per client as described in `docs/MCP.md`.
+
+## Limits
+
+- Drives one tab at a time and never steals your cursor or focus.
+- `chrome://`-type pages, the stores and new-tab pages cannot be debugged.
+- An open DevTools (or another CDP client) on that tab blocks the bridge.
+- On the Firefox edition `navigator.webdriver` is true and cannot be turned off.
+- It drives your own logged-in sites; it does not promise anti-bot evasion.
+
+## Docs
+
+- `README.md` — product overview, install, common issues, supported platforms.
+- `docs/INSTALL.md` — full install, launchd/systemd, ports and tokens, uninstall, troubleshooting.
+- `docs/HTTP_API.md` — the `POST /command` contract with one curl per action.
+- `docs/MCP.md` — MCP server and per-client registration.
+- `docs/AGENTS.md` — three-step agent onboarding and common agent pitfalls.
+- `docs/PRIVACY.md` — privacy policy.
+- `docs/CROSS_PLATFORM.md` — platform matrix and verification checklist.
+- `ff/README.md` — Firefox edition.

@@ -42,6 +42,17 @@ Webflow Bridge is not a cloud browser service, not a cookie jar, and not a secon
 
 It drives **one tab at a time** and never steals your cursor or focus — you can keep using other tabs, other browsers, or any other app while it works. Need it waiting after a reboot? On macOS, one command hands it to launchd.
 
+## How it compares
+
+| If you need… | Use… |
+|---|---|
+| An AI agent to do one thing in your real, logged-in browser | **Webflow Bridge** |
+| An agent that runs multi-page tasks on its own, with cloud concurrency and built-in models | a Browser Use–style agent framework |
+| End-to-end tests on the Playwright ecosystem | Playwright MCP |
+| Deep DevTools capabilities (performance traces, network, Lighthouse) | Chrome DevTools MCP |
+
+What sets it apart: it drives the browser you already have open and logged in — the same profile, the same cookies, the same session — through browser-extension permissions plus a local token. Nothing leaves your machine, and no remote-debugging port is left open for other local processes to use. On Firefox it likewise targets your real, everyday profile rather than a separate automation build.
+
 ---
 
 ## Install
@@ -53,6 +64,14 @@ Needs **Python 3.11+** and Chrome, Edge or Firefox — all local, no account, no
 - **macOS, always on** — after the one-time launchd setup in [docs/INSTALL.md](docs/INSTALL.md), this line (re)starts it at every login: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.webflow.bridge.plist`.
 
 Full detail — both launch methods, launchd/systemd, ports, tokens, uninstall and troubleshooting: **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+## Hand it to your agent
+
+Paste this to a coding agent (Claude Code, Codex, Hermes, …) to let it wire itself up:
+
+> You are connecting to Webflow Bridge in this repo. Start the daemon from the repo root (`python3 daemon/webflow_bridge.py`, or `py -3.11 daemon/webflow_bridge.py` on Windows). Then register the MCP server by following `docs/MCP.md`, and reload/restart your MCP client the way that guide requires. Finally, read `llms.txt` and `docs/AGENTS.md` and use them to drive the browser over `POST /command` or the MCP tools.
+>
+> One step needs a human first: the `extension/` folder must be loaded unpacked at `chrome://extensions` or `edge://extensions` (Developer mode → Load unpacked). The extension is not on the browser stores yet, so it cannot be installed automatically.
 
 ## Common issues (at a glance)
 

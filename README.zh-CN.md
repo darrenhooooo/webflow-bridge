@@ -42,6 +42,17 @@ Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要
 
 它一次只驱动**一个标签页**，绝不抢你的鼠标和焦点 —— 它干活的同时，你照常用其他标签页、其他浏览器或任何别的软件。想让它重启后继续待命？macOS 上一行命令交给 launchd 即可。
 
+## 和其他方案怎么选
+
+| 如果你需要…… | 用…… |
+|---|---|
+| 让 AI agent 在你真实登录态的浏览器里做一件事 | **Webflow Bridge** |
+| 让 agent 自己跑多页任务，要云端并发 / 内置模型 | Browser Use 那类 agent 框架 |
+| 用 Playwright 生态做端到端测试 | Playwright MCP |
+| 要 DevTools 深度能力（性能 trace、网络、Lighthouse） | Chrome DevTools MCP |
+
+Webflow Bridge 的不同之处：它驱动的是你已经打开、已经登录的那个浏览器 —— 同一个 profile、同一套 cookie、同一个会话，走的是浏览器扩展权限加本地令牌。数据不出本机，也不会留一个暴露给本机其他进程的远程调试端口。Firefox 上同样如此：驱动的是你日常那个真实 profile，而非另一个自动化专用的浏览器构建。
+
 ---
 
 ## 安装
@@ -53,6 +64,14 @@ Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要
 - **macOS 常驻** —— 按 [docs/INSTALL.md](docs/INSTALL.md) 完成一次 launchd 配置后，这行会让它每次登录自动启动：`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.webflow.bridge.plist`。
 
 完整细节 —— 两种启动方式、launchd/systemd、端口与 token、卸载与排错：**[docs/INSTALL.md](docs/INSTALL.md)**。
+
+## 把它交给你的 agent
+
+把下面这段直接粘给 coding agent（Claude Code、Codex、Hermes 等），让它自己接上：
+
+> 你要接入本仓库的 Webflow Bridge。先在仓库根目录启动 daemon（`python3 daemon/webflow_bridge.py`，Windows 用 `py -3.11 daemon/webflow_bridge.py`）。然后按 `docs/MCP.md` 注册 MCP server，并按该文档的要求重载/重启你的 MCP 客户端。最后读 `llms.txt` 与 `docs/AGENTS.md`，据此通过 `POST /command` 或 MCP 工具驱动浏览器。
+>
+> 有一步必须先由人来做：在 `chrome://extensions` 或 `edge://extensions` 里以解压方式加载 `extension/` 文件夹（开发者模式 → 加载已解压的扩展程序）。扩展尚未上架浏览器商店，所以无法自动安装。
 
 ## 常见问题速查
 
