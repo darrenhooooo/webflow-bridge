@@ -14,7 +14,7 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     for root, dirs, files in os.walk(src):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__' and d != 'dist']
         for f in sorted(files):
-            if f.startswith('.') or f == '__pycache__':
+            if f.startswith('.') or f == '__pycache__' or f.endswith('.zip') or f in ('make_icons.py', 'rebuild_zip.py', 'README_AMO.md'):
                 continue
             p = os.path.join(root, f)
             arc = os.path.relpath(p, src).replace(os.sep, '/')
