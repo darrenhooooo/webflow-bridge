@@ -8,7 +8,7 @@ runtime dependency to the daemon itself: PyInstaller is a *build-time* tool
 the daemon's import graph.
 
 Usage:
-    python3 tools/build_standalone.py [--version 1.4.0] [--python PATH]
+    python3 tools/build_standalone.py [--version 1.5.0] [--python PATH]
 
 Output (repo `dist/`):
     macOS/Linux : webflow-bridge-daemon-<version>-macos

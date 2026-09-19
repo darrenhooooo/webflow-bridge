@@ -18,7 +18,7 @@ and ask that you hold details until the fix is out.
 
 ## Supported versions
 
-Current stable line: **1.4.0+**. Security fixes land on the newest stable
+Current stable line: **1.5.0+**. Security fixes land on the newest stable
 line only — older versions should upgrade to the latest release.
 
 ## Security posture (as implemented)
