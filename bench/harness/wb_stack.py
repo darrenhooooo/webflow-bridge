@@ -107,7 +107,13 @@ class WbStack:
     def _patch_extension(self):
         dst = tempfile.mkdtemp(prefix="wb_bench_ext_", dir=self.work_tmp)
         self.tmp_dirs.append(dst)
-        shutil.copytree(WB_EXT_DIR, dst, dirs_exist_ok=True)
+        # WB_EXT_SRC lets a caller point the stack at an ALREADY-BUILT
+        # extension tree (e.g. a zip extracted under /tmp) instead of the
+        # repo's extension/. Default stays WB_EXT_DIR, so every existing
+        # caller is unaffected.
+        src = os.environ.get("WB_EXT_SRC") or WB_EXT_DIR
+        print(f"wb_stack: copying extension from {src}")
+        shutil.copytree(src, dst, dirs_exist_ok=True)
         path = os.path.join(dst, "background.js")
         with open(path, "r", encoding="utf-8", newline="") as fh:
             txt = fh.read()
