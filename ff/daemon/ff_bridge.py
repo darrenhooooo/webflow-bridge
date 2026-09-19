@@ -54,15 +54,42 @@ import random
 import secrets
 import socket
 import struct
+import sys
 import threading
 import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+# v1.4 self-heal core: one shared implementation with the Chrome edition
+# (identical field names, defaults and error strings; see
+# tools/parity/selfheal_parity_test.py).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from selfheal import (BROWSER_ACTIONS, capture_enabled,        # noqa: E402
+                      capture_path, error_text_of, execute_with_retry,
+                      parse_retry_spec)
 
 HTTP_HOST = "127.0.0.1"
 HTTP_PORT = 10096
 FF_HOST = "127.0.0.1"
 FF_PORT = 9222
+FF_BIDI_URL_ENV = "WBF_FF_BIDI_URL"   # ws://host:port/session override
+
+
+def env_bidi_port(default: int = FF_PORT) -> int:
+    """BiDi port from WBF_FF_BIDI_URL (ws://host:port/session).
+
+    Unset/invalid -> `default` (9222): every existing setup is unchanged.
+    Tests / alternate instances point the daemon elsewhere without needing
+    the CLI flag; an explicit --ff-port still wins.
+    """
+    raw = os.environ.get(FF_BIDI_URL_ENV, "").strip()
+    if not raw:
+        return default
+    try:
+        return urlsplit(raw).port or default
+    except ValueError:
+        return default
 
 # Origins a browser page may POST from (same CSRF posture as the Chrome
 # daemon, scoped to this daemon's own port).  Native scripts/curl send no
@@ -381,6 +408,10 @@ class FfBiDi:
         self.pending_dialog = None # single-slot user-prompt state machine
         self.dialog_auto_error = None  # P4: last auto-accept failure (visible
                                        # via probe) or None
+        # v1.4 wait_for(networkIdleMs): wall-clock (epoch s) of the last
+        # network event seen in this session; 0.0 before any activity.
+        # Reset on every (re)connect so it only describes observable events.
+        self.last_net_activity = 0.0
 
     # -------- state accessors ---------------------------------------------
 
@@ -659,6 +690,7 @@ class FfBiDi:
             self.net_events = []
             self.console_events = []
             self.pending_dialog = None
+            self.last_net_activity = 0.0
 
     def _subscribe_events(self) -> None:
         """Subscribe the event classes the P2 actions consume.
@@ -777,6 +809,7 @@ class FfBiDi:
             return
         ts_ms = int(time.time() * 1000)
         with self._ev_lock:
+            self.last_net_activity = time.time()
             rec = next((e for e in self.net_events
                         if e.get("requestId") == rid), None)
             if rec is None:
@@ -1176,16 +1209,101 @@ def _audit_detail(action: str, args: dict) -> str:
     return " ".join(parts)
 
 
+def _wait_check_expr(css, text, until: str) -> str:
+    """JS boolean expression for wait_for -- Firefox port of the Chrome
+    extension's buildWaitCheckExpression (identical semantics):
+
+    * appear (default)  -- element exists with a layout box (or, text only,
+      the text is present in a laid-out element);
+    * gone              -- the selector is no longer in the DOM (and the
+      text is gone when both are given);
+    * hidden            -- no layout box / visibility:hidden / display:none
+      (text given: hidden OR text no longer present).
+    """
+    t = json.dumps(text)
+    css_json = json.dumps(css)
+    el_visible = (
+        "(()=>{try{const el=document.querySelector(%s);if(!el)return false;"
+        "const r=el.getBoundingClientRect?el.getBoundingClientRect():null;"
+        "return !!r&&(r.width>0||r.height>0);}catch(_){return false;}})()"
+        % css_json)
+    el_gone = ("(()=>{try{return !document.querySelector(%s);}"
+               "catch(_){return false;}})()" % css_json)
+    el_hidden = (
+        "(()=>{try{const el=document.querySelector(%s);if(!el)return true;"
+        "const st=(typeof window.getComputedStyle==='function')"
+        "?window.getComputedStyle(el):null;"
+        "if(st&&(st.visibility==='hidden'||st.display==='none'))return true;"
+        "const r=el.getBoundingClientRect?el.getBoundingClientRect():null;"
+        "return !r||(r.width===0&&r.height===0);}"
+        "catch(_){return false;}})()" % css_json)
+    text_present = (
+        "(()=>{const t=%s;try{const all=document.querySelectorAll('body *');"
+        "for(const el of all){const r=el.getBoundingClientRect"
+        "?el.getBoundingClientRect():null;"
+        "if(!r||(r.width===0&&r.height===0))continue;"
+        "const hay=((el.innerText||'')+' '+(el.value!==undefined"
+        "?String(el.value):''));if(hay.indexOf(t)!==-1)return true;}}"
+        "catch(_){return false;}return false;})()" % t)
+    if until == "gone":
+        if not text:
+            return el_gone
+        return "(()=>(%s)&&!(%s))()" % (el_gone, text_present)
+    if until == "hidden":
+        if css and not text:
+            return el_hidden
+        if not css:
+            return "(()=>!(%s))()" % text_present
+        return "(()=>(%s)||!(%s))()" % (el_hidden, text_present)
+    if css and not text:
+        return el_visible
+    if css and text:
+        return (
+            "(()=>{try{const el=document.querySelector(%s);if(!el)return false;"
+            "const r=el.getBoundingClientRect?el.getBoundingClientRect():null;"
+            "if(!r||(r.width===0&&r.height===0))return false;"
+            "const hay=((el.innerText||'')+' '+(el.value!==undefined"
+            "?String(el.value):''));return hay.indexOf(%s)!==-1;}"
+            "catch(_){return false;}})()" % (css_json, t))
+    return text_present
+
+
+class _ActionFf:
+    """BiDi facade that flags the request as browser-reached per call.
+
+    The preamble (getTree / context probing) keeps using the raw client;
+    only the ACTION's own commands go through here, so a parameter
+    validation failure (no command ever sent) is never screenshotted while
+    a genuine browser failure is (Chrome _roundtrip.reached parity).
+    """
+
+    __slots__ = ("_b",)
+
+    def __init__(self, bridge) -> None:
+        self._b = bridge
+
+    def command(self, method: str, params: dict | None = None,
+                timeout: float = EVAL_TIMEOUT) -> dict:
+        self._b._reached_tls.reached = True
+        return self._b.ff.command(method, params=params, timeout=timeout)
+
+
 class Bridge:
     """Ties the HTTP /command endpoint to the single resident BiDi session."""
 
     def __init__(self, client: FfBiDi) -> None:
         self.ff = client
+        self._a = _ActionFf(self)     # reached-marking facade for actions
         # ---- P2 state --------------------------------------------------
         self.last_snapshot = None     # {context, byRef, byIndex} newest
         self._snap_lock = threading.Lock()
         self._gen_source: str | None = None   # ff_snapshot_gen.js cache
         self._humanize_tls = threading.local()   # per-request humanize flag
+        # v1.4 failure handling, per HTTP request:
+        self._reached_tls = threading.local()    # True once the action's own
+                                                 # BiDi command was sent
+        self._no_audit_tls = threading.local()   # suppress the audit line
+                                                 # emitted by the auto-screenshot
 
     # -------- context resolution ------------------------------------------
 
@@ -1361,7 +1479,38 @@ class Bridge:
     # -------- dispatch -----------------------------------------------------
 
     def dispatch(self, payload, who: str = ""):
-        """Handle one POST /command payload -> (http_status, response_dict)."""
+        """Handle one POST /command payload -> (http_status, response_dict).
+
+        v1.4 failure handling: `args.retry` re-runs a transient failure (the
+        shared policy lives in selfheal.execute_with_retry/classify_retry)
+        and a browser-action failure carries an automatic PNG of the target
+        tab in error_details.  Wire shape matches the Chrome edition.
+        """
+        args = payload.get("args") if isinstance(payload, dict) else None
+        action = payload.get("action") if isinstance(payload, dict) else None
+        spec, retry_err = parse_retry_spec(args)
+        if retry_err is not None:
+            # A bad args.retry is a parameter error: no retry, no screenshot.
+            return 200, {"status": "error", "error": retry_err}
+        self._reached_tls.reached = False
+        status, body, retries, attempts_log = execute_with_retry(
+            lambda p: self._dispatch_tupled(p, who), payload, spec)
+        if status == 200 and isinstance(body, dict) \
+                and body.get("status") == "ok":
+            if spec.given:
+                # report 0 too -- the caller opted into retry semantics
+                body.setdefault("data", {})["retries"] = retries
+        else:
+            self._error_details(action, args, body, retries, attempts_log,
+                                spec, status)
+        return status, body
+
+    def _dispatch_tupled(self, payload, who: str):
+        """_dispatch with its exception contract flattened to (status, body).
+
+        Keeps the pre-v1.4 HTTP shapes: 503 for a missing session, 200
+        {"status":"error"} for action/parameter failures.
+        """
         try:
             return self._dispatch(payload, who)
         except FfNotConnected:
@@ -1371,6 +1520,73 @@ class Bridge:
         except Exception as exc:                            # noqa: BLE001
             log.exception("dispatch failed")
             return 200, {"status": "error", "error": f"internal error: {exc}"}
+
+    def _error_details(self, action, args, body, retries, attempts_log,
+                       spec, http_status) -> None:
+        """Attach the additive error_details field to a failed response.
+
+        Never touches `error` or the HTTP status: a screenshot problem only
+        adds screenshot_error. Empty details are omitted, so a legacy failure
+        (no retry, capture disabled) keeps its exact old body.
+        """
+        if not isinstance(body, dict):
+            return
+        details = {}
+        if spec.given or attempts_log:
+            details["retries"] = retries
+            details["attempts"] = attempts_log
+        self._capture_failure_screenshot(action, args, http_status, details)
+        if details:
+            body["error_details"] = details
+
+    def _capture_failure_screenshot(self, action, args, http_status,
+                                    details) -> None:
+        """On a browser-action failure, save one PNG of the target tab and put
+        its absolute path in error_details.screenshot.
+
+        Skipped for: non-browser actions, parameter-validation failures (the
+        action's own BiDi command was never sent), 503 (no session to ask)
+        and when capture is disabled. Any failure becomes screenshot_error.
+        """
+        if action not in BROWSER_ACTIONS:
+            return
+        if not getattr(self._reached_tls, "reached", False):
+            return
+        if http_status == 503:
+            return
+        if not capture_enabled(args if isinstance(args, dict) else {}):
+            return
+        started = time.perf_counter()
+        try:
+            sc_args = {}
+            if isinstance(args, dict):
+                for key in ("context", "tabId"):
+                    if key in args:
+                        sc_args[key] = args[key]
+            # Reuse the screenshot action; suppress its audit line so the
+            # auto-capture stays invisible to the audit stream (Chrome parity).
+            self._no_audit_tls.on = True
+            try:
+                st, sc_body = self._dispatch(
+                    {"action": "screenshot", "args": sc_args}, "")
+            finally:
+                self._no_audit_tls.on = False
+            value = (sc_body.get("data") or {}).get("value") \
+                if isinstance(sc_body, dict) else None
+            raw = (value or {}).get("base64")
+            if st != 200 or not isinstance(sc_body, dict) \
+                    or sc_body.get("status") != "ok" or not raw:
+                details["screenshot_error"] = (
+                    error_text_of(sc_body) or f"screenshot failed (HTTP {st})")
+                return
+            path = capture_path(action)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as fh:
+                fh.write(base64.b64decode(raw))
+            details["screenshot"] = path
+            details["capturedMs"] = int((time.perf_counter() - started) * 1000)
+        except Exception as exc:                    # noqa: BLE001 (fail-open)
+            details["screenshot_error"] = f"{type(exc).__name__}: {exc}"
 
     def _dispatch(self, payload, who: str) -> tuple:
         if not isinstance(payload, dict):
@@ -1390,7 +1606,8 @@ class Bridge:
         # semantics).  Input actions pace their real-input sequences when on.
         self._humanize_tls.on = bool(HUMANIZE) or payload.get("humanize") is True \
             or (isinstance(args, dict) and args.get("humanize") is True)
-        audit(action, who, detail=_audit_detail(action, args))
+        if not getattr(self._no_audit_tls, "on", False):
+            audit(action, who, detail=_audit_detail(action, args))
 
         # --- actions that never need a live session -----------------------
         if action == "cdp":
@@ -1410,7 +1627,7 @@ class Bridge:
                 "policy": applied, "extension_notified": True}}}
         if action not in {"evaluate", "navigate", "tabs_list", "tabs_open",
                           "tabs_close", "tabs_close_all_but", "tabs_activate",
-                          "find_tab",
+                          "find_tab", "wait_for",
                           "click", "fill", "type_text", "send_key",
                           "mouse_click", "screenshot", "save_as_pdf",
                           "upload", "snapshot", "handle_dialog",
@@ -1428,7 +1645,7 @@ class Bridge:
             if not isinstance(code, str) or not code.strip():
                 raise FfActionError("", "'args.code' (string) is required")
             ctx = self._resolve_context(args, tops)
-            res = self.ff.command(
+            res = self._a.command(
                 "script.evaluate",
                 {"expression": code, "target": {"context": ctx},
                  "awaitPromise": True, "resultOwnership": "none"},
@@ -1451,7 +1668,7 @@ class Bridge:
             if not isinstance(url, str) or not url.strip():
                 raise FfActionError("", "'args.url' (string) is required")
             ctx = self._resolve_context(args, tops)
-            self.ff.command(
+            self._a.command(
                 "browsingContext.navigate",
                 {"context": ctx, "url": url, "wait": "complete"},
                 timeout=EVAL_TIMEOUT)
@@ -1468,7 +1685,7 @@ class Bridge:
                 # evaluate per tab.  Failures degrade gracefully.
                 try:
                     rv = _unwrap_remote((
-                        self.ff.command(
+                        self._a.command(
                             "script.evaluate",
                             {"expression": "(() => ({t: document.title, "
                              "v: document.visibilityState === 'visible'}))()",
@@ -1496,13 +1713,13 @@ class Bridge:
             # and navigate it explicitly, waiting for load so tabs_open has
             # the same "tab is really at url" semantics as the Chrome
             # edition and a following find_tab matches immediately.
-            res = self.ff.command(
+            res = self._a.command(
                 "browsingContext.create", {"type": "tab"})
             cid = res.get("context")
             if not cid:
                 raise FfActionError(
                     "", "browsingContext.create returned no context")
-            nav = self.ff.command(
+            nav = self._a.command(
                 "browsingContext.navigate",
                 {"context": cid, "url": url, "wait": "complete"},
                 timeout=EVAL_TIMEOUT)
@@ -1512,7 +1729,7 @@ class Bridge:
 
         if action == "tabs_close":
             ctx = self._resolve_context(args, tops)
-            self.ff.command("browsingContext.close", {"context": ctx})
+            self._a.command("browsingContext.close", {"context": ctx})
             return 200, {"status": "ok", "data": {
                 "value": {"closed": ctx}}}
 
@@ -1535,7 +1752,7 @@ class Bridge:
             for c in tops:
                 if c.get("context") == ctx:
                     continue
-                self.ff.command(
+                self._a.command(
                     "browsingContext.close", {"context": c["context"]})
                 closed += 1
             return 200, {"status": "ok", "data": {
@@ -1544,7 +1761,7 @@ class Bridge:
         if action == "tabs_activate":
             ctx = self._resolve_context(args, tops)
             try:
-                self.ff.command("browsingContext.activate", {"context": ctx})
+                self._a.command("browsingContext.activate", {"context": ctx})
             except FfActionError as exc:
                 # Not supported on this Firefox: acknowledge as no-op rather
                 # than fail the whole action (P0 contract).
@@ -1591,11 +1808,99 @@ class Bridge:
                               "error": f"no tab matches {url}"}}}
             ctx = found["context"]
             if args.get("active") is True:
-                self.ff.command("browsingContext.activate", {"context": ctx})
+                self._a.command("browsingContext.activate", {"context": ctx})
             return 200, {"status": "ok", "data": {
                 "value": {"success": True,
                           "url": found.get("url", "") or "",
                           "tabId": ctx}}}
+
+        if action == "wait_for":
+            # v1.4: FF has no extension, so the poll runs here in the daemon
+            # (page-side check expression + BiDi script.evaluate loop).  Wire
+            # contract/validation mirrored 1:1 from the Chrome daemon.
+            selector = args.get("selector")
+            if selector is not None and (not isinstance(selector, str)
+                                         or not selector.strip()):
+                raise FfActionError(
+                    "", "'args.selector' must be a non-empty string when "
+                    "provided")
+            text = args.get("text")
+            if text is not None and not isinstance(text, str):
+                raise FfActionError(
+                    "", "'args.text' must be a string when provided")
+            if (selector is None or not str(selector).strip()) and (
+                    text is None or not str(text).strip()):
+                raise FfActionError(
+                    "", "'wait_for' needs 'args.selector' and/or 'args.text'")
+            until = args.get("until")
+            if until is not None and until not in ("appear", "gone", "hidden"):
+                raise FfActionError(
+                    "", "'args.until' must be one of 'appear', "
+                    "'gone', 'hidden' when provided")
+            if until == "gone" and (selector is None
+                                    or not str(selector).strip()):
+                raise FfActionError(
+                    "", "'wait_for' with until='gone' requires "
+                    "'args.selector'")
+            network_idle = args.get("networkIdleMs")
+            if network_idle is not None and (
+                    not isinstance(network_idle, int)
+                    or isinstance(network_idle, bool)
+                    or not 0 < network_idle <= 30000):
+                raise FfActionError(
+                    "", "'args.networkIdleMs' must be an integer "
+                    "1-30000 when provided")
+            for key in ("timeoutMs", "intervalMs"):
+                val = args.get(key)
+                if val is not None and (not isinstance(val, int)
+                                        or isinstance(val, bool)
+                                        or val <= 0):
+                    raise FfActionError(
+                        "", f"'args.{key}' must be a positive integer "
+                        "when provided")
+            timeout_ms = args.get("timeoutMs")
+            timeout = min(timeout_ms, 90000) if timeout_ms else 10000
+            interval_ms = args.get("intervalMs")
+            interval = min(interval_ms, 2000) if interval_ms else 300
+            mode = until or "appear"
+            ctx = self._resolve_context(args, tops)
+            css = None
+            if selector is not None and str(selector).strip():
+                css = self._resolve_selector(str(selector).strip(), ctx)
+            text_val = str(text) if (text is not None and str(text)) else None
+            check = _wait_check_expr(css, text_val, mode)
+            self._reached_tls.reached = True
+            started = time.monotonic()
+            while True:
+                cond_ok = _p1_eval(self._a, ctx, check) is True
+                with self.ff._ev_lock:
+                    last_act = self.ff.last_net_activity
+                idle_for = (int((time.time() - last_act) * 1000)
+                            if last_act else int(time.time() * 1000))
+                net_ok = network_idle is None or idle_for >= network_idle
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                if cond_ok and net_ok:
+                    value = {"found": True, "elapsedMs": elapsed_ms,
+                             "matched": mode}
+                    if network_idle is not None:
+                        value["lastNetworkActivityMs"] = idle_for
+                    return 200, {"status": "ok", "data": {"value": value}}
+                if elapsed_ms >= timeout:
+                    target = ((" selector=" + css) if css else "") + \
+                             ((" text=" + json.dumps(text_val))
+                              if text_val else "")
+                    if not cond_ok:
+                        reason = ("condition not met (until=" + mode
+                                  + target + ")")
+                    else:
+                        reason = ("condition met but the page was not "
+                                  "network-idle for " + str(network_idle)
+                                  + "ms (last activity " + str(idle_for)
+                                  + "ms ago)")
+                    raise FfActionError(
+                        "", "wait_for timed out after " + str(timeout)
+                        + "ms: " + reason)
+                time.sleep(interval / 1000.0)
 
         # -------- P1 actions (real input + capture; contract per docs) ----
 
@@ -1604,10 +1909,10 @@ class Bridge:
             sel = _p1_sel(args)
             ctx = self._resolve_context(args, tops)
             sel = self._resolve_selector(sel, ctx)
-            geo = _p1_find_geo(self.ff, ctx, sel)
+            geo = _p1_find_geo(self._a, ctx, sel)
             if not geo.get("found"):
                 raise FfActionError("", f"no element matches selector {sel}")
-            _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
+            _p1_pointer_click(self._a, ctx, geo["x"], geo["y"])
             return 200, {"status": "ok", "data": {"value": {
                 "success": True,
                 "tag": geo.get("tag") or "",
@@ -1626,7 +1931,7 @@ class Bridge:
                     "'contenteditable'")
             ctx = self._resolve_context(args, tops)
             sel = self._resolve_selector(sel, ctx)
-            el = _p1_probe_el(self.ff, ctx, sel)
+            el = _p1_probe_el(self._a, ctx, sel)
             if not el.get("found"):
                 raise FfActionError("", f"no element matches selector {sel}")
             tag = el.get("tag") or ""
@@ -1637,14 +1942,14 @@ class Bridge:
                     raise FfActionError(
                         "", f"fill mode '{mode}' needs a contenteditable "
                         f"element; {sel} is <{tag}>")
-                geo = _p1_find_geo(self.ff, ctx, sel)
+                geo = _p1_find_geo(self._a, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError("",
                                         f"no element matches selector {sel}")
-                _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
-                _p1_chord(self.ff, ctx, ["\uE009"], "a")     # select all
-                _p1_chord(self.ff, ctx, [], "\uE003")        # clear
-                _p1_type_text(self.ff, ctx, value, "ce",
+                _p1_pointer_click(self._a, ctx, geo["x"], geo["y"])
+                _p1_chord(self._a, ctx, ["\uE009"], "a")     # select all
+                _p1_chord(self._a, ctx, [], "\uE003")        # clear
+                _p1_type_text(self._a, ctx, value, "ce",
                               humanize=self._h_on())
                 return 200, {"status": "ok", "data": {"value": {
                     "success": True, "tag": tag,
@@ -1662,7 +1967,7 @@ class Bridge:
             proto = {"textarea": "HTMLTextAreaElement",
                      "select": "HTMLSelectElement"}.get(tag,
                                                         "HTMLInputElement")
-            out = _p1_eval_json(self.ff, ctx,
+            out = _p1_eval_json(self._a, ctx,
                                 "(()=>{const el=document.querySelector(%s);"
                                 "const setter=Object.getOwnPropertyDescriptor("
                                 "%s.prototype,'value').set;"
@@ -1691,13 +1996,13 @@ class Bridge:
                     raise FfActionError(
                         "", "'args.selector' must be a string")
                 sel = self._resolve_selector(sel, ctx)
-                geo = _p1_find_geo(self.ff, ctx, sel)
+                geo = _p1_find_geo(self._a, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError(
                         "", f"no element matches selector {sel}")
-                _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
-            kind = _p1_focused_kind(self.ff, ctx)
-            _p1_type_text(self.ff, ctx, text, kind,
+                _p1_pointer_click(self._a, ctx, geo["x"], geo["y"])
+            kind = _p1_focused_kind(self._a, ctx)
+            _p1_type_text(self._a, ctx, text, kind,
                           humanize=self._h_on())
             # len mirrors the Chrome edition's JS .length (UTF-16 units).
             n = sum(2 if ord(c) > 0xFFFF else 1 for c in text)
@@ -1737,12 +2042,12 @@ class Bridge:
                     raise FfActionError(
                         "", "'args.selector' must be a string")
                 sel = self._resolve_selector(sel, ctx)
-                geo = _p1_find_geo(self.ff, ctx, sel)
+                geo = _p1_find_geo(self._a, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError(
                         "", f"no element matches selector {sel}")
-                _p1_pointer_click(self.ff, ctx, geo["x"], geo["y"])
-            _p1_chord(self.ff, ctx, mods, value)
+                _p1_pointer_click(self._a, ctx, geo["x"], geo["y"])
+            _p1_chord(self._a, ctx, mods, value)
             return 200, {"status": "ok", "data": {"value": {
                 "success": True, "key": key}}}
 
@@ -1755,7 +2060,7 @@ class Bridge:
                     raise FfActionError(
                         "", "'args.selector' must be a string")
                 sel = self._resolve_selector(sel, ctx)
-                geo = _p1_find_geo(self.ff, ctx, sel)
+                geo = _p1_find_geo(self._a, ctx, sel)
                 if not geo.get("found"):
                     raise FfActionError(
                         "", f"no element matches selector {sel}")
@@ -1767,7 +2072,7 @@ class Bridge:
                     raise FfActionError(
                         "", "provide 'selector' or integer 'x'/'y' "
                         "(viewport CSS pixels)")
-            _p1_pointer_click(self.ff, ctx, x, y)
+            _p1_pointer_click(self._a, ctx, x, y)
             return 200, {"status": "ok", "data": {"value": {
                 "success": True, "x": x, "y": y}}}
 
@@ -1790,7 +2095,7 @@ class Bridge:
                     raise FfActionError(
                         "", "'args.selector' must be a string")
                 sel = self._resolve_selector(sel, ctx)
-                sid = _p1_find_shared(self.ff, ctx, sel)
+                sid = _p1_find_shared(self._a, ctx, sel)
                 if sid is None:
                     raise FfActionError(
                         "", f"no element matches selector {sel}")
@@ -1808,14 +2113,14 @@ class Bridge:
             else:
                 params["format"] = {"type": "image/jpeg",
                                     "quality": quality / 100.0}
-            res = self.ff.command("browsingContext.captureScreenshot",
+            res = self._a.command("browsingContext.captureScreenshot",
                                   params)
             data = (res or {}).get("data")
             if not isinstance(data, str) or not data:
                 raise FfActionError("", "screenshot returned no image data")
             w, h = _img_size(base64.b64decode(data))
             if w is None:
-                w, h = _p1_viewport_size(self.ff, ctx)   # CSS-size fallback
+                w, h = _p1_viewport_size(self._a, ctx)   # CSS-size fallback
             return 200, {"status": "ok", "data": {"value": {
                 "base64": data,
                 "mime": "image/png" if fmt == "png" else "image/jpeg",
@@ -1823,7 +2128,7 @@ class Bridge:
 
         if action == "save_as_pdf":
             ctx = self._resolve_context(args, tops)
-            res = self.ff.command("browsingContext.print",
+            res = self._a.command("browsingContext.print",
                                   {"context": ctx, "background": True})
             data = (res or {}).get("data")
             if not isinstance(data, str) or not data:
@@ -1844,17 +2149,17 @@ class Bridge:
                 raise FfActionError("", f"file not found: {file_arg}")
             ctx = self._resolve_context(args, tops)
             sel = self._resolve_selector(sel, ctx)
-            el = _p1_probe_el(self.ff, ctx, sel)
+            el = _p1_probe_el(self._a, ctx, sel)
             if not el.get("found"):
                 raise FfActionError("", f"no element matches selector {sel}")
             if el.get("tag") != "input" or el.get("type") != "file":
                 raise FfActionError(
                     "", f"selector must resolve to an <input type=file>; "
                     f"{sel} is <{el.get('tag')} type={el.get('type')}>")
-            sid = _p1_find_shared(self.ff, ctx, sel)
+            sid = _p1_find_shared(self._a, ctx, sel)
             if sid is None:
                 raise FfActionError("", f"no element matches selector {sel}")
-            self.ff.command("input.setFiles", {
+            self._a.command("input.setFiles", {
                 "context": ctx,
                 "element": {"sharedId": sid},
                 "files": [path]})
@@ -1891,7 +2196,7 @@ class Bridge:
                     "", "snapshot generator is missing its placeholders")
             code = code.replace("__START__", str(start))
             code = code.replace("__LIMIT__", str(max_nodes))
-            res = self.ff.command(
+            res = self._a.command(
                 "script.evaluate",
                 {"expression": code, "target": {"context": ctx},
                  "awaitPromise": True, "resultOwnership": "none"},
@@ -1984,7 +2289,7 @@ class Bridge:
             params: dict = {"context": ctx, "accept": accept}
             if user_text is not None:
                 params["userText"] = user_text
-            self.ff.command("browsingContext.handleUserPrompt", params)
+            self._a.command("browsingContext.handleUserPrompt", params)
             with self.ff._ev_lock:
                 cur = self.ff.pending_dialog
                 if cur is not None and cur.get("context") == ctx:
@@ -2156,8 +2461,9 @@ def main() -> None:
         description="Webflow Bridge for Firefox daemon -- HTTP :10096 "
                     "POST /command + resident WebDriver BiDi client to "
                     "ws://127.0.0.1:9222/session (Firefox remote agent).")
-    parser.add_argument("--ff-port", type=int, default=FF_PORT,
-                        help="Firefox remote-debugging port (default 9222)")
+    parser.add_argument("--ff-port", type=int, default=env_bidi_port(),
+                        help="Firefox remote-debugging port (default 9222, "
+                             "or WBF_FF_BIDI_URL)")
     parser.add_argument("--http-port", type=int, default=HTTP_PORT,
                         help="HTTP command port (default 10096)")
     parser.add_argument("--allow-no-auth", action="store_true",

@@ -22,6 +22,12 @@ Firefox 变体（独立版）：同一套 `POST /command` 协议与动作契约�
 | Windows 11 | `ff/ff-launch.bat` | **实测全绿**：P0+P1+P2 smoke（09-08，Firefox 155） |
 | macOS | `ff/ff-launch.sh` | **实测全绿**：P0(4/4)+P1(13/13)+P2(13/13) smoke（09-09，Firefox 155.0.1）；见脚本内实测记录 |
 
+本轮（**2026-09-19，实测 Firefox 156.0**，一次性 profile + 端口 9122/10097）：
+新增 `wait_for` 与失败处理三件（失败截图 / 幂等重试 / 退避抖动），
+`ff_selfheal_smoke.py` 16/16 全绿，`ff_p1_smoke.py`(13/13) 与
+`ff_p2_smoke.py`(13/13，daemon 需 `--no-auto-dialog`) 回归全绿。
+自愈核心与 Chrome 侧平测（`tools/parity/selfheal_parity_test.py`）439 条断言全过。
+
 ## 安装三步
 
 ### 1. 用启动器打开真实 profile 的 Firefox（BiDi 端口 9222）
@@ -62,7 +68,11 @@ py -3.11 ff/daemon/ff_bridge.py
 （0600）。每个 POST 需带 `Authorization: Bearer <token>`（或环境变量
 `WBF_FF_TOKEN`）；`GET http://127.0.0.1:10096/config` 返回 `{"token":...}`。
 `--allow-no-auth` 关闭校验（仅迁移用）。可选 `--ff-port`（默认 9222）、
-`--http-port`（默认 10096）、`--audit <path>`、`--humanize`（全局随机节奏）。
+`--http-port`（默认 10096）、`--audit <path>`、`--humanize`（全局随机节奏）、
+`--no-auto-dialog`（默认 auto-accept，P4）。
+
+环境变量 `WBF_FF_BIDI_URL`（形如 `ws://127.0.0.1:9222/session`）可覆盖 BiDi 端口，
+**默认不变仍是 9222**（向后兼容）；显式 `--ff-port` 优先。用于测试/多实例。
 
 ### 3. 冒烟验证
 
@@ -70,10 +80,16 @@ py -3.11 ff/daemon/ff_bridge.py
 python ff/daemon/ff_smoke.py    # P0: 4 步（evaluate/navigate/title/tabs_list）
 python ff/daemon/ff_p1_smoke.py # P1: 13 步（输入面 + screenshot/pdf/upload，本地测试页）
 python ff/daemon/ff_p2_smoke.py # P2: 13 步（snapshot/network/console/dialog/humanize，本地测试页）
+python ff/daemon/ff_selfheal_smoke.py # v1.4 失败处理 + wait_for（自建一次性 profile，独立端口）
 ```
 
-均需 Firefox 已由 ff-launch 打开。全部本地 http.server，无外网依赖（P0 的
-example.com 除外）。exit 0 = 全绿。
+前三个均需 Firefox 已由 ff-launch 打开。全部本地 http.server，无外网依赖（P0 的
+example.com 除外）。exit 0 = 全绿。注：P2 的 handle_dialog 用例需手动处理弹窗，
+daemon 请用 `--no-auto-dialog` 启动。
+
+`ff_selfheal_smoke.py` 是**完全自包含**的：它自己用临时目录的一次性 profile 起
+Firefox（`:9122`）与 daemon（`:10097`），跑完杀掉并确认端口释放，绝不碰你日常在
+用、占用 `:9222` 的 Firefox。
 
 ## 动作矩阵（对齐 Chrome 协议契约）
 
@@ -97,6 +113,7 @@ example.com 除外）。exit 0 = 全绿。
 | `list_console_messages` | `log.entryAdded` 订阅 | ✅ P2 |
 | `handle_dialog` | userPromptOpened 单槽状态机，accept/dismiss/promptText | ✅ P2 |
 | `humanize` | per-request pacing（--humanize / body 顶层 / args.humanize） | ✅ P2 |
+| `wait_for` | 页面侧轮询（BiDi `script.evaluate`）：`appear`/`gone`/`hidden` + `networkIdleMs`；返回体与 Chrome 同形 | ✅ v1.4.0 |
 | `handle_file_chooser` | **不支持**：Firefox BiDi 无原生文件选择拦截 → 明确报错，用 `upload` | ⛔ P2 实测 |
 | `cdp` | **不支持**：Firefox 无 CDP → 明确报错 | ⛔ P0 |
 
@@ -104,11 +121,31 @@ example.com 除外）。exit 0 = 全绿。
 响应契约与 Chrome 版一致：`200 {status:ok, data:{value}}` /
 `200 {status:error, error}`；跨域 POST → 403；鉴权失败 → 401。
 
+## 失败处理（v1.4，与 Chrome 侧同形）
+
+- **失败截图**：任何**已到达浏览器**的动作失败时，`error_details.screenshot`
+  给出 PNG 绝对路径（另有 `capturedMs`）；截图本身失败给 `screenshot_error`。
+  参数校验类失败（动作的 BiDi 命令根本没发出）不截图。
+  - 单请求关闭：`args.captureOnError=false`；
+  - 全局关闭：`WBF_CAPTURE_ON_ERROR=0/false/no/off`；
+  - 目录覆盖：`WBF_CAPTURE_DIR`；默认
+    `~/.webflow_bridge/captures/<YYYY-MM-DD>/<HHMMSS>-<action>-<4hex>.png`。
+- **瞬态重试**：`args.retry={"attempts":0..5,"backoffMs":0..5000}`（不带即不重试，
+  老请求行为完全不变）。只读动作遇到瞬时错误即重试；有副作用动作**仅在未投递到
+  页面时**才重试（已执行的 click 绝不重放）；指数退避 ±25% 抖动、上限 5s。
+  成功响应带 `data.retries`；最终失败的 `error_details` 带 `retries` 与逐次
+  `attempts`（`{attempt,error,delivered}`）。
+- 判定与退避逻辑在 `ff/daemon/selfheal.py`，字段名/默认值/错误文案与
+  `daemon/webflow_bridge.py` 逐字一致，由 `tools/parity/selfheal_parity_test.py`
+  平测（439 条断言）证明两份实现不漂移。
+
 ## 与 Chrome 版差异
 
 - 端口 10096（Chrome 10086）；`tabId` 语义 = BiDi context id（字符串）。
 - `tabs_list` 无 windowId/index；`active` 用 `document.visibilityState` 近似判定。
 - `cdp` / `handle_file_chooser` 明确不支持（Chrome 有 debugger/fileChooser 拦截）。
+- 本轮只对齐 `wait_for` + 失败处理三件；`fill_form`/`submit`/`drop`/
+  `list_downloads`/`resize_page` 尚未在 FF 实现（下一轮）。
 - 截图是真实像素（dpr 感知，Chrome 版口径可能不同——如需一致需对齐）。
 - click 触发 JS dialog 时真实点击会挂起直到 `handle_dialog` 被并发处理
   （客户端需并发发 handle_dialog，见 ff_p2_smoke 示例模式）。

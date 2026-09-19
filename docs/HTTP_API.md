@@ -17,6 +17,14 @@ human with curl.
 your tool ──POST /command──▶ daemon (127.0.0.1:10086) ──WebSocket──▶ Chrome extension ──CDP──▶ real tab
 ```
 
+> **Firefox edition (`ff/`).** The same `POST /command` contract runs on
+> `http://127.0.0.1:10096` (token in `~/.webflow_bridge_ff/token`), backed by
+> WebDriver BiDi instead of the extension. v1.4 failure handling is identical
+> (`args.retry`, `captureOnError`, `error_details`, `wait_for` semantics).
+> Actions not available on that backend answer an explicit `status:error`:
+> `cdp`, `handle_file_chooser`, and — not yet ported — `fill_form`, `submit`,
+> `drop`, `list_downloads`, `resize_page`.
+
 ## Quickstart
 
 | Thing | Value |
