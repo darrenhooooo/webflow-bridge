@@ -22,8 +22,10 @@ your tool ──POST /command──▶ daemon (127.0.0.1:10086) ──WebSocket�
 > WebDriver BiDi instead of the extension. v1.4 failure handling is identical
 > (`args.retry`, `captureOnError`, `error_details`, `wait_for` semantics).
 > Actions not available on that backend answer an explicit `status:error`:
-> `cdp`, `handle_file_chooser`, and — not yet ported — `fill_form`, `submit`,
-> `drop`, `list_downloads`, `resize_page`.
+> `cdp` and `handle_file_chooser`. Firefox `list_downloads` covers only the
+> current BiDi session (no download history), and Firefox `resize_page`
+> additionally accepts `clear: true` to drop the viewport override (no `cdp`
+> for `Emulation.clearDeviceMetricsOverride`).
 
 ## Quickstart
 

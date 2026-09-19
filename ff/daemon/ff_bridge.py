@@ -49,6 +49,7 @@ import concurrent.futures
 import itertools
 import json
 import logging
+import mimetypes
 import os
 import random
 import secrets
@@ -157,6 +158,9 @@ P2_NET_EVENTS = ["network.beforeRequestSent", "network.responseStarted",
 P2_LOG_EVENTS = ["log.entryAdded"]
 P2_PROMPT_EVENTS = ["browsingContext.userPromptOpened",
                     "browsingContext.userPromptClosed"]
+# list_downloads: P5 download events (verified live on Firefox 156.0).
+P2_DOWNLOAD_EVENTS = ["browsingContext.downloadWillBegin",
+                      "browsingContext.downloadEnd"]
 DIALOG_WAIT_MS = 2000      # handle_dialog: default wait for a dialog
 DIALOG_WAIT_MAX = 15000    # handle_dialog: timeoutMs ceiling (Chrome parity)
 SNAPSHOT_MAX_DEFAULT = 400
@@ -408,6 +412,8 @@ class FfBiDi:
         self.pending_dialog = None # single-slot user-prompt state machine
         self.dialog_auto_error = None  # P4: last auto-accept failure (visible
                                        # via probe) or None
+        self.download_events = []  # P5 [{guid,url,suggestedFilename,state,at}]
+                                   # (ring, CURRENT BiDi session only)
         # v1.4 wait_for(networkIdleMs): wall-clock (epoch s) of the last
         # network event seen in this session; 0.0 before any activity.
         # Reset on every (re)connect so it only describes observable events.
@@ -689,6 +695,7 @@ class FfBiDi:
         with self._ev_lock:
             self.net_events = []
             self.console_events = []
+            self.download_events = []
             self.pending_dialog = None
             self.last_net_activity = 0.0
 
@@ -699,7 +706,8 @@ class FfBiDi:
         P2 constants block).  A failed subscribe degrades the related list
         action, never the session.
         """
-        for ev in (P2_NET_EVENTS + P2_LOG_EVENTS + P2_PROMPT_EVENTS):
+        for ev in (P2_NET_EVENTS + P2_LOG_EVENTS + P2_PROMPT_EVENTS
+                   + P2_DOWNLOAD_EVENTS):
             try:
                 self.command("session.subscribe", {"events": [ev]},
                              timeout=QUICK_TIMEOUT)
@@ -733,6 +741,10 @@ class FfBiDi:
                 self._net_seen(params, create=True, completed=True)
             elif method == "log.entryAdded":
                 self._console_add(params)
+            elif method == "browsingContext.downloadWillBegin":
+                self._download_begin(params)
+            elif method == "browsingContext.downloadEnd":
+                self._download_end(params)
             elif method == "browsingContext.userPromptOpened":
                 dv = params.get("defaultValue")
                 with self._ev_lock:
@@ -843,6 +855,46 @@ class FfBiDi:
                 br = resp.get("bytesReceived")
                 if isinstance(br, (int, float)) and not isinstance(br, bool):
                     rec["size"] = int(br)
+
+    def _download_begin(self, params: dict) -> None:
+        """Fold browsingContext.downloadWillBegin into a Chrome-shaped
+        record: {guid,url,suggestedFilename,state,at} (docs/HTTP_API.md).
+        BiDi carries the download id as params.download; timestamp is epoch
+        ms like the Chrome collector's Date.now().
+        """
+        guid = params.get("download")
+        if not isinstance(guid, str) or not guid:
+            return
+        url = params.get("url")
+        name = params.get("suggestedFilename")
+        ts = params.get("timestamp")
+        at = (int(ts) if isinstance(ts, (int, float))
+              and not isinstance(ts, bool) else int(time.time() * 1000))
+        rec = {"guid": guid,
+               "url": url if isinstance(url, str) else "",
+               "suggestedFilename": name if isinstance(name, str) else "",
+               "state": "started", "at": at}
+        with self._ev_lock:
+            self.download_events.append(rec)
+            if len(self.download_events) > EVENT_CAP:
+                del self.download_events[0:len(self.download_events) - EVENT_CAP]
+
+    def _download_end(self, params: dict) -> None:
+        """Fold browsingContext.downloadEnd into the matching record; the
+        BiDi status 'complete' maps to the Chrome state 'completed'."""
+        guid = params.get("download")
+        if not isinstance(guid, str) or not guid:
+            return
+        status = params.get("status")
+        state = {"complete": "completed",
+                 "canceled": "canceled"}.get(status)
+        if state is None:
+            return
+        with self._ev_lock:
+            rec = next((x for x in self.download_events
+                        if x.get("guid") == guid), None)
+            if rec is not None:
+                rec["state"] = state
 
     def _console_add(self, params: dict) -> None:
         """Fold log.entryAdded into the console ring (Chrome-shaped).
@@ -1628,11 +1680,13 @@ class Bridge:
         if action not in {"evaluate", "navigate", "tabs_list", "tabs_open",
                           "tabs_close", "tabs_close_all_but", "tabs_activate",
                           "find_tab", "wait_for",
-                          "click", "fill", "type_text", "send_key",
+                          "click", "fill", "submit", "fill_form",
+                          "type_text", "send_key",
                           "mouse_click", "screenshot", "save_as_pdf",
-                          "upload", "snapshot", "handle_dialog",
+                          "upload", "drop", "snapshot", "handle_dialog",
                           "handle_file_chooser", "list_network_requests",
-                          "get_network_request", "list_console_messages"}:
+                          "get_network_request", "list_console_messages",
+                          "list_downloads", "resize_page"}:
             raise FfActionError("", f"unknown action: {action}")
 
         # --- every remaining action refreshes the context list first -------
@@ -1984,6 +2038,100 @@ class Bridge:
             return 200, {"status": "ok", "data": {"value": {
                 "success": True, "tag": tag, "mode": "value"}}}
 
+        if action == "submit":
+            # Chrome parity (daemon + extension handleSubmit/submitExpression):
+            # requestSubmit() on the form around the target (the form itself,
+            # a form control, or a button inside one), falling back to
+            # el.click() when no form/requestSubmit exists.  Same value shape
+            # {success,tag,mode} and the same 'element not found: <sel>' error.
+            self._h_pre()
+            sel = args.get("selector")
+            if not isinstance(sel, str) or not sel.strip():
+                raise FfActionError("", "'args.selector' (CSS | @eN) is required")
+            ctx = self._resolve_context(args, tops)
+            sel = self._resolve_selector(sel.strip(), ctx)
+            expr = (
+                "(()=>{try{const sel=%s;"
+                "const el=document.querySelector(sel);"
+                "if(!el)return{error:'element not found: '+sel};"
+                "if(typeof el.scrollIntoView==='function'){"
+                "try{el.scrollIntoView({block:'center'});}catch(err){}}"
+                "const tag=(el.tagName||'').toLowerCase();let form=null;"
+                "if(tag==='form')form=el;"
+                "else if(el.form)form=el.form;"
+                "else if(typeof el.closest==='function')form=el.closest('form');"
+                "if(form&&typeof form.requestSubmit==='function'){"
+                "form.requestSubmit();"
+                "return{success:true,tag:tag,mode:'requestSubmit'};}"
+                "el.click();"
+                "return{success:true,tag:tag,mode:'click'};"
+                "}catch(err){return{error:String((err&&err.message)||err)};}})()"
+                % json.dumps(sel))
+            out = _p1_eval_json(self._a, ctx, expr) or {}
+            if out.get("error"):
+                raise FfActionError("", str(out["error"]))
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "tag": out.get("tag") or "",
+                "mode": out.get("mode") or ""}}}
+
+        if action == "fill_form":
+            # Chrome parity: ONE page pass over the value-type controls
+            # (input/textarea/select, native value setter + input/change).
+            # A per-field failure never aborts the other fields; the reply is
+            # {success,filled:[selector],errors:[{selector,error}]}.
+            self._h_pre()
+            fields = args.get("fields")
+            if not isinstance(fields, list) or not fields:
+                raise FfActionError(
+                    "", "'args.fields' (non-empty array of "
+                    "{selector, value}) is required")
+            for f in fields:
+                if (not isinstance(f, dict)
+                        or not isinstance(f.get("selector"), str)
+                        or not f["selector"].strip()
+                        or not isinstance(f.get("value"), str)):
+                    raise FfActionError(
+                        "", "every 'args.fields' item needs {selector "
+                        "(CSS | @eN), value (string)}")
+            ctx = self._resolve_context(args, tops)
+            resolved = [{"sel": self._resolve_selector(f["selector"].strip(),
+                                                        ctx),
+                         "value": f["value"]} for f in fields]
+            expr = (
+                "(()=>{const fields=%s;const filled=[];const errors=[];"
+                "function nativeSet(el,value){const proto="
+                "el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:"
+                "HTMLInputElement.prototype;"
+                "const desc=Object.getOwnPropertyDescriptor(proto,'value');"
+                "if(desc&&desc.set)desc.set.call(el,value);else el.value=value;"
+                "el.dispatchEvent(new Event('input',{bubbles:true}));"
+                "el.dispatchEvent(new Event('change',{bubbles:true}));}"
+                "for(const f of fields){try{"
+                "const el=document.querySelector(f.sel);"
+                "if(!el){errors.push({selector:f.sel,"
+                "error:'element not found'});continue;}"
+                "const tag=(el.tagName||'');"
+                "if(tag==='SELECT'){el.value=f.value;"
+                "el.dispatchEvent(new Event('change',{bubbles:true}));}"
+                "else if(tag==='INPUT'||tag==='TEXTAREA'){nativeSet(el,f.value);}"
+                "else if(el.isContentEditable||(el.getAttribute&&"
+                "(el.getAttribute('contenteditable')===''||"
+                "el.getAttribute('contenteditable')==='true'||"
+                "el.getAttribute('contenteditable')==='plaintext-only'))){"
+                "errors.push({selector:f.sel,error:'contenteditable \u2014 fill "
+                "it separately with mode:\"contenteditable\"'});continue;}"
+                "else{errors.push({selector:f.sel,"
+                "error:'unsupported element <'+tag+'>'});continue;}"
+                "filled.push(f.sel);}catch(err){errors.push({selector:f.sel,"
+                "error:String((err&&err.message)||err)});}}"
+                "return{success:true,filled:filled,errors:errors};})()"
+                % json.dumps(resolved))
+            out = _p1_eval_json(self._a, ctx, expr) or {}
+            return 200, {"status": "ok", "data": {"value": {
+                "success": bool(out.get("success")),
+                "filled": out.get("filled") or [],
+                "errors": out.get("errors") or []}}}
+
         if action == "type_text":
             self._h_pre()
             text = args.get("text")
@@ -2165,6 +2313,127 @@ class Bridge:
                 "files": [path]})
             return 200, {"status": "ok", "data": {"value": {
                 "success": True, "file": file_arg, "tag": "input"}}}
+
+        if action == "drop":
+            # Chrome parity (daemon handle + extension dropExpression): the
+            # daemon reads the local file(s) and forwards base64 payloads;
+            # the page builds a real File per item and dispatches
+            # dragenter/dragover/drop/dragleave with a DataTransfer.  The
+            # same page-side DataTransfer path works under BiDi
+            # script.evaluate (verified live on Firefox 156.0); no CDP
+            # Input.dispatchDragEvent is needed.
+            sel = args.get("selector")
+            if not isinstance(sel, str) or not sel.strip():
+                raise FfActionError(
+                    "", "'args.selector' (CSS | @eN drop-zone) is required")
+            paths = []
+            single = args.get("file")
+            multi = args.get("files")
+            if isinstance(single, str) and single.strip():
+                paths = [single]
+            elif isinstance(multi, list) and multi:
+                if not all(isinstance(p, str) and p.strip() for p in multi):
+                    raise FfActionError(
+                        "", "'args.files' must be an array of path strings")
+                paths = list(multi)
+            else:
+                raise FfActionError(
+                    "", "'args.file' (single path) or 'args.files' (array) "
+                    "is required")
+            files = []
+            try:
+                for path in paths:
+                    size = os.path.getsize(path)
+                    if size > 32 << 20:
+                        raise FfActionError(
+                            "", f"file too large for drop: {path} "
+                            f"({size} bytes > 32 MiB)")
+                    with open(path, "rb") as fh:
+                        data = base64.b64encode(fh.read()).decode("ascii")
+                    files.append({
+                        "name": os.path.basename(path),
+                        "mime": mimetypes.guess_type(path)[0]
+                        or "application/octet-stream",
+                        "data": data,
+                    })
+            except OSError as exc:
+                raise FfActionError(
+                    "", f"cannot read drop file: {exc}") from exc
+            ctx = self._resolve_context(args, tops)
+            sel = self._resolve_selector(sel.strip(), ctx)
+            expr = (
+                "(()=>{try{const sel=%s;const files=%s;"
+                "const el=document.querySelector(sel);"
+                "if(!el)return{error:'element not found: '+sel};"
+                "if(typeof el.scrollIntoView==='function'){"
+                "try{el.scrollIntoView({block:'center'});}catch(err){}}"
+                "const dt=new DataTransfer();"
+                "for(const f of files){const bin=atob(f.data);"
+                "const bytes=new Uint8Array(bin.length);"
+                "for(let i=0;i<bin.length;i+=1)bytes[i]=bin.charCodeAt(i);"
+                "const file=new File([bytes],f.name,"
+                "{type:f.mime||'application/octet-stream'});"
+                "dt.items.add(file);}"
+                "const opts={bubbles:true,cancelable:true,dataTransfer:dt};"
+                "el.dispatchEvent(new DragEvent('dragenter',opts));"
+                "el.dispatchEvent(new DragEvent('dragover',opts));"
+                "el.dispatchEvent(new DragEvent('drop',opts));"
+                "el.dispatchEvent(new DragEvent('dragleave',opts));"
+                "return{success:true,dropped:files.length};"
+                "}catch(err){return{error:String((err&&err.message)||err)};}})()"
+                % (json.dumps(sel), json.dumps(files)))
+            out = _p1_eval_json(self._a, ctx, expr) or {}
+            if out.get("error"):
+                raise FfActionError("", str(out["error"]))
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "dropped": int(out.get("dropped") or 0)}}}
+
+        if action == "list_downloads":
+            # Chrome parity shape {downloads,count} (newest first), served
+            # from the browsingContext.downloadWillBegin/downloadEnd ring.
+            # Firefox has NO queryable download history over BiDi, so the
+            # list covers the CURRENT BiDi session only (reset on connect).
+            limit = args.get("limit")
+            if limit is not None and (not isinstance(limit, int)
+                                      or isinstance(limit, bool) or limit <= 0):
+                raise FfActionError(
+                    "", "'args.limit' must be a positive integer when provided")
+            with self.ff._ev_lock:
+                total = len(self.ff.download_events)
+                dls = [dict(x) for x in
+                        self.ff.download_events[-(limit or EVENT_CAP):]]
+            dls.reverse()                       # newest first (Chrome)
+            return 200, {"status": "ok", "data": {"value": {
+                "downloads": dls, "count": total}}}
+
+        if action == "resize_page":
+            # BiDi browsingContext.setViewport.  Chrome contract
+            # {width,height} positive integers -> {success,width,height};
+            # Firefox has no 'cdp' action for
+            # Emulation.clearDeviceMetricsOverride, so the FF edition also
+            # accepts clear:true (FF-only extension) which resets the
+            # viewport override via setViewport viewport:null.
+            clear = args.get("clear") is True
+            if clear:
+                ctx = self._resolve_context(args, tops)
+                self._a.command("browsingContext.setViewport",
+                                {"context": ctx, "viewport": None})
+                return 200, {"status": "ok", "data": {"value": {
+                    "success": True, "cleared": True}}}
+            width = args.get("width")
+            height = args.get("height")
+            if (not isinstance(width, int) or isinstance(width, bool)
+                    or width <= 0 or not isinstance(height, int)
+                    or isinstance(height, bool) or height <= 0):
+                raise FfActionError(
+                    "", "'args.width'/'args.height' (positive integers) "
+                    "are required")
+            ctx = self._resolve_context(args, tops)
+            self._a.command("browsingContext.setViewport",
+                            {"context": ctx,
+                             "viewport": {"width": width, "height": height}})
+            return 200, {"status": "ok", "data": {"value": {
+                "success": True, "width": width, "height": height}}}
 
         # -------- P2 actions --------------------------------------------
         # Contract: docs/HTTP_API.md + the Chrome daemon's action entries

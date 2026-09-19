@@ -81,6 +81,7 @@ python ff/daemon/ff_smoke.py    # P0: 4 步（evaluate/navigate/title/tabs_list�
 python ff/daemon/ff_p1_smoke.py # P1: 13 步（输入面 + screenshot/pdf/upload，本地测试页）
 python ff/daemon/ff_p2_smoke.py # P2: 13 步（snapshot/network/console/dialog/humanize，本地测试页）
 python ff/daemon/ff_selfheal_smoke.py # v1.4 失败处理 + wait_for（自建一次性 profile，独立端口）
+python ff/daemon/ff_actions_smoke.py # fill_form/submit/drop/list_downloads/resize_page（自建一次性 profile，独立端口）
 ```
 
 前三个均需 Firefox 已由 ff-launch 打开。全部本地 http.server，无外网依赖（P0 的
@@ -114,6 +115,11 @@ Firefox（`:9122`）与 daemon（`:10097`），跑完杀掉并确认端口释放
 | `handle_dialog` | userPromptOpened 单槽状态机，accept/dismiss/promptText | ✅ P2 |
 | `humanize` | per-request pacing（--humanize / body 顶层 / args.humanize） | ✅ P2 |
 | `wait_for` | 页面侧轮询（BiDi `script.evaluate`）：`appear`/`gone`/`hidden` + `networkIdleMs`；返回体与 Chrome 同形 | ✅ v1.4.0 |
+| `fill_form` | 单次 `script.evaluate` 批量填值（input/textarea/select native setter + input/change），`{fields:[{selector,value}]}` → `{success,filled,errors}`；逐字段报错不中断 | ✅ 已实现（与 Chrome 同形） |
+| `submit` | `script.evaluate` 内 `requestSubmit()`（无 form 时退化为 `el.click()`）→ `{success,tag,mode}` | ✅ 已实现 |
+| `drop` | daemon 读本地文件转 base64 → 页面内 `DataTransfer` + `DragEvent`（dragenter/dragover/drop/dragleave，与 Chrome 同一页面路径；32 MiB 上限） | ✅ 已实现 |
+| `list_downloads` | 订阅 `browsingContext.downloadWillBegin/downloadEnd` → 环形缓冲（cap 300），`{downloads,count}` 最新在前 | ✅ 已实现（**仅本次 BiDi 会话**，BiDi 无历史下载查询） |
+| `resize_page` | BiDi `browsingContext.setViewport`：`{width,height}` → `{success,width,height}`；FF 额外支持 `clear:true` 恢复默认视口 | ✅ 已实现（`clear` 为 FF 扩展） |
 | `handle_file_chooser` | **不支持**：Firefox BiDi 无原生文件选择拦截 → 明确报错，用 `upload` | ⛔ P2 实测 |
 | `cdp` | **不支持**：Firefox 无 CDP → 明确报错 | ⛔ P0 |
 
@@ -144,8 +150,10 @@ Firefox（`:9122`）与 daemon（`:10097`），跑完杀掉并确认端口释放
 - 端口 10096（Chrome 10086）；`tabId` 语义 = BiDi context id（字符串）。
 - `tabs_list` 无 windowId/index；`active` 用 `document.visibilityState` 近似判定。
 - `cdp` / `handle_file_chooser` 明确不支持（Chrome 有 debugger/fileChooser 拦截）。
-- 本轮只对齐 `wait_for` + 失败处理三件；`fill_form`/`submit`/`drop`/
-  `list_downloads`/`resize_page` 尚未在 FF 实现（下一轮）。
+- `fill_form`/`submit`/`drop`/`list_downloads`/`resize_page` 已按 Chrome 契约实现；
+  其中 `list_downloads` 仅覆盖**本次 BiDi 会话**（BiDi 无历史下载查询），
+  `resize_page` 的 `clear:true` 是 FF 扩展（Chrome 用 `cdp`
+  `Emulation.clearDeviceMetricsOverride`，FF 无 `cdp`）。
 - 截图是真实像素（dpr 感知，Chrome 版口径可能不同——如需一致需对齐）。
 - click 触发 JS dialog 时真实点击会挂起直到 `handle_dialog` 被并发处理
   （客户端需并发发 handle_dialog，见 ff_p2_smoke 示例模式）。
