@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webflow Bridge Privacy Policy</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #555555;
+    --rule: #dddddd;
+    --link: #0b57d0;
+    --code-bg: #f2f2f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212;
+      --fg: #e6e6e6;
+      --muted: #a8a8a8;
+      --rule: #333333;
+      --link: #8ab4f8;
+      --code-bg: #1e1e1e;
+    }
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    padding: 2rem 1rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 17px;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 46rem;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 1.75rem;
+    line-height: 1.3;
+    margin: 0 0 0.25rem;
+  }
+  h2 {
+    font-size: 1.2rem;
+    line-height: 1.3;
+    margin: 2rem 0 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--rule);
+  }
+  p, li {
+    margin: 0.5rem 0;
+  }
+  ul {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+  }
+  .updated {
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+    font-size: 0.95rem;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--rule);
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    background: var(--code-bg);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+  }
+  a {
+    color: var(--link);
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Webflow Bridge Privacy Policy</h1>
+<p class="updated">Last updated: 2026-09-19</p>
+
+<h2>Short version</h2>
+<p><strong>Short version: everything stays on your computer.</strong> Webflow
+Bridge runs entirely on your machine. It never sends data anywhere else.</p>
+
+<h2>The two parts</h2>
+<p>Webflow Bridge has two parts, both of which you run on your own machine:</p>
+<ol>
+  <li>A Python daemon that listens on <code>http://127.0.0.1:10086</code> (HTTP)
+    and <code>ws://127.0.0.1:10087</code> (WebSocket). You install and run it
+    yourself.</li>
+  <li>A Chrome extension ("Webflow Bridge") that connects to that daemon.</li>
+</ol>
+
+<h2>What the extension does</h2>
+<ul>
+  <li><strong>Connects only to <code>ws://127.0.0.1:10087</code></strong> — a
+    local daemon running on your machine. It makes no other network
+    connections.</li>
+  <li><strong>Reads and can modify the content of the tab you drive.</strong>
+    It attaches to the active tab via <code>chrome.debugger</code> and evaluates
+    scripts through CDP <code>Runtime.evaluate</code> — the same channel
+    Chrome's DevTools console uses.</li>
+  <li><strong>Evaluates scripts that you — or local scripts running on your
+    machine — send to it</strong>, and can navigate the active tab to other
+    URLs and manage tabs.</li>
+</ul>
+
+<h2>Data</h2>
+<ul>
+  <li><strong>All data stays on your machine.</strong> Scripts, page content,
+    and results move between your local scripts, the daemon, and the extension,
+    over the loopback addresses <code>127.0.0.1</code>.</li>
+  <li><strong>Nothing is transmitted to any remote server.</strong> There is no
+    telemetry, no analytics, no usage tracking, and no third-party code.</li>
+</ul>
+
+<h2>Not a remote-code-execution service</h2>
+<p>The extension is not a cloud or hosted service and receives no commands from
+the internet. The daemon is local software that you install and run yourself;
+if you do not run it, the extension has nothing to connect to. Anyone with
+access to your machine or its local ports could drive the extension, so only run the
+daemon on machines you trust.</p>
+
+<h2>Permissions</h2>
+<ul>
+  <li><code>debugger</code> — attach to a tab (like DevTools) to evaluate
+    scripts and run CDP commands.</li>
+  <li><code>tabs</code> — read tab URLs/titles and navigate, list, open, close,
+    and activate tabs.</li>
+  <li><code>scripting</code> / <code>activeTab</code> — declared alongside
+    <code>debugger</code> for extension API availability.</li>
+  <li><code>alarms</code> — a background watchdog that reconnects to the daemon
+    if the connection drops.</li>
+  <li><code>tabGroups</code> — name the tab group when a script opens a new tab
+    with a group title (the <code>navigate</code> action's
+    <code>group_title</code> option).</li>
+  <li><code>storage</code> — save the local daemon token and the
+    Disconnect/Reconnect state on this machine, in your browser's local
+    extension storage; this data is never uploaded.</li>
+</ul>
+
+<h2>Removing Webflow Bridge</h2>
+<ol>
+  <li>Uninstall the extension at <code>chrome://extensions</code> (remove
+    "Webflow Bridge").</li>
+  <li>Delete this repository.</li>
+  <li>Stop the daemon process running
+    <code>daemon/webflow_bridge.py</code>.</li>
+</ol>
+<p>No browsing data is stored anywhere. The extension saves the local daemon
+token and the Disconnect/Reconnect state, kept in your browser's local
+extension storage on this machine and removed when you uninstall the
+extension.</p>
+
+<h2>Contact</h2>
+<p>Email: <a href="mailto:darren.hou@outlook.com">darren.hou@outlook.com</a><br>
+Repository:
+<a href="https://github.com/darrenhooooo/webflow-bridge">https://github.com/darrenhooooo/webflow-bridge</a></p>
+
+<p class="note">This page loads no external resources.</p>
+
+</main>
+</body>
+</html>
