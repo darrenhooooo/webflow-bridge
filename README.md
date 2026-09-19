@@ -23,7 +23,7 @@ Webflow Bridge is not a cloud browser service, not a cookie jar, and not a secon
 |---|---|
 | 🖥️ **Drives the browser you already use** | Runs on your live, logged-in tab — real session, cookies and page state, no phantom browser to keep in sync. |
 | 🤖 **Talks to scripts & AI agents** | One `POST /command` protocol; browser-bridge agent skills map over 1:1. |
-| 🎯 **30+ browser actions** | Click, type, fill forms, upload/drop files, screenshot, save PDF, read pages, switch tabs, watch network traffic & console logs — and more. |
+| 🎯 **30+ browser actions** | Click, type, fill forms, upload/drop files, screenshot, save PDF, read pages, switch tabs, watch network traffic & console logs — and more. A failed action keeps a screenshot of the tab, and requests can opt into automatic retry of transient errors. |
 | 🪟 **Dialogs never stall a run** | alert / confirm / prompt are answered automatically — accept, dismiss, or type an answer. |
 | 📎 **Uploads without the OS dialog** | Point at an upload button, hand it a local file path — the system "Open File" window never appears. |
 | 🔓 **Works on locked-down sites** | Runs your JS even where the page forbids its own scripts — x.com and friends included. |
@@ -134,5 +134,5 @@ Webflow Bridge is **free and open source (MIT)** — see [LICENSE](LICENSE). If 
 
 - ⭐ Star — [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
 - 🐛 Report bugs / request features — [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
-- 📦 Releases — [v1.3.0](https://github.com/darrenhooooo/webflow-bridge/releases)
+- 📦 Releases — [v1.4.0](https://github.com/darrenhooooo/webflow-bridge/releases)
 - ✉️ Contact — darren.hou@outlook.com

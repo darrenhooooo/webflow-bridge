@@ -1,6 +1,6 @@
 # Webflow Bridge HTTP API — zero-SDK driver guide (standard browser-bridge agent-tool names)
 
-**Webflow Bridge Command API v1.3.0** · base URL `http://127.0.0.1:10086`
+**Webflow Bridge Command API v1.4.0** · base URL `http://127.0.0.1:10086`
 · OpenAPI description: [`../openapi/openapi.yaml`](../openapi/openapi.yaml)
 
 ## What this proves
@@ -400,6 +400,48 @@ curl -s -X POST http://127.0.0.1:10086/command \
 # => {"status": "ok", "data": {"value": {"success": true, "len": 8}}}
 ```
 
+**wait_for** — poll the target tab until a condition holds. `appear` (default)
+waits for an element with a layout box (optionally containing `text`), `gone`
+waits for the `selector` to leave the DOM, `hidden` waits for it to lose its
+layout box (`display:none`, `visibility:hidden`) — and an optional
+`networkIdleMs` additionally waits for that many ms without a request/response
+event on the tab. Answer: `{"found": true, "elapsedMs": N, "matched": ...}`
+(plus `lastNetworkActivityMs` when `networkIdleMs` was given):
+
+```bash
+# appear (default): the element shows up within 10s
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"wait_for","args":{"selector":"#result","timeoutMs":8000},"session":"default"}'
+# => {"status":"ok","data":{"value":{"found":true,"elapsedMs":1234,"matched":"appear"}}}
+
+# gone (selector is mandatory): wait for a spinner to leave the DOM
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"wait_for","args":{"selector":"#spinner","until":"gone","timeoutMs":8000},"session":"default"}'
+# => {"status":"ok","data":{"value":{"found":true,"elapsedMs":420,"matched":"gone"}}}
+
+# hidden + network-idle: element is invisible AND the tab has been quiet for 800ms
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"wait_for","args":{"selector":"#spinner","until":"hidden","networkIdleMs":800,"timeoutMs":15000},"session":"default"}'
+# => {"status":"ok","data":{"value":{"found":true,"elapsedMs":900,"matched":"hidden","lastNetworkActivityMs":812}}}
+```
+
+`until` semantics: `appear` = element exists **and** has a layout box; `gone` =
+`document.querySelector(selector)` is `null`; `hidden` = no layout box or
+`visibility:hidden`/`display:none`. `until="gone"` requires a `selector` (a
+`text`-only `gone` is rejected, never silently treated as `appear`). With both
+`selector` and `text`, `hidden` is satisfied by **"element not visible OR text
+no longer present"**, and `gone` requires both the element and the text to be
+gone. `networkIdleMs` counts `Network.requestWillBeSent` /
+`Network.responseReceived` events on the target tab (1..30000 ms, default off);
+on timeout the error says which part was unmet — `condition not met
+(until=...)` or `condition met but the page was not network-idle for Nms`.
+
 **tabs_activate** — focus a tab (default active): `{"value": {"tabId": <n>, "active": true}}`:
 
 ```bash
@@ -602,16 +644,100 @@ to ...*"), **failed to load / certificate / cancelled auth**
 | `probe` used to hang behind a dialog | The injection paths wait on the frozen renderer | No longer: `probe` answers in ms with `dialog.blocking: true` and the paths marked `skipped`; resolve the dialog with `handle_dialog` |
 | `screenshot {fullPage: true}` answers `{"code":-32000,"message":"Page is too large."}` | Chrome's own cap on capture dimensions (common for very tall pages, and more easily hit in `--headless`) | Not a bridge defect: use a viewport screenshot, a smaller viewport, or a headed browser; the same page's viewport screenshot and `save_as_pdf` still work |
 | `no JavaScript dialog is showing within 2000ms` | No dialog was open (already auto-accepted?) or the dialog is on another tab | Check `dialog.policy` via `probe`; pass `tabId` |
-| `extension_connected: true` but nothing works | The WebSocket is up but the debugger is blocked/dead | `/status` is connection-only; run `probe` or retry (a retry re-attaches) |
+| `extension_connected: true` but nothing works | The WebSocket is up but the debugger is blocked/dead | `/status` is connection-only; run `probe`, or send the same request again with `args.retry` (transient debugger/extension errors are retried automatically when you opt in — see Self-heal below) |
+
+## Self-heal — failure screenshots and transient retries
+
+Both features are additive: they never change a successful reply and never
+replace the original `error`. Legacy requests (no new args) behave exactly as
+before.
+
+### Failure screenshots (`captureOnError`)
+
+When a **browser action** fails, the daemon takes one PNG of the target tab and
+reports its absolute path in the optional `error_details` field:
+
+```bash
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"click","args":{"selector":"#does-not-exist"},"session":"default"}'
+# => {"status":"error","error":"...","error_details":{"screenshot":"/Users/me/.webflow_bridge/captures/2025-01-02/030405-click-9df6.png","capturedMs":118}}
+```
+
+* Path rule: `<captures>/<YYYY-MM-DD>/<HHMMSS>-<action>-<4 hex>.png`.
+* Default root `~/.webflow_bridge/captures`; override with the `WBF_CAPTURE_DIR`
+  environment variable.
+* Turn it off globally with `WBF_CAPTURE_ON_ERROR=0`, or per request with
+  `"captureOnError": false` in `args` (not forwarded to the extension).
+* Only a browser action that actually reached the transport is captured;
+  a **parameter-validation failure** (bad/missing args, file-not-found for
+  `drop`, ...) is never screenshotted. If the extension is not connected
+  (HTTP 503) there is no page to capture.
+* If the capture itself fails, the original error is untouched and the reason
+  is reported instead: `"error_details": {"screenshot_error": "..."}`.
+
+```bash
+# per-request opt out (same failing click, no file written)
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"click","args":{"selector":"#does-not-exist","captureOnError":false},"session":"default"}'
+```
+
+### Transient-error retry (`retry`)
+
+Add `"retry": {"attempts": N, "backoffMs": M}` to `args` to re-run a request
+that failed on a transient transport/debugger error. **Retry is off unless you
+ask for it.** `attempts` is the number of *extra* tries (0..5, default 2 when
+the object is given without it); `backoffMs` is the base delay (0..5000,
+default 400) and grows exponentially with ±25% jitter, capped at 5000 ms:
+
+```bash
+# retry a flaky read twice, 400ms base backoff
+curl -s -X POST http://127.0.0.1:10086/command \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WBF_TOKEN" \
+  -d '{"action":"evaluate","args":{"code":"(() => document.title)()","retry":{"attempts":2,"backoffMs":400}},"session":"default"}'
+# => {"status":"ok","data":{"value":"Example Domain","retries":1}}
+```
+
+What may be retried:
+
+| Action | Retried? |
+|---|---|
+| `evaluate`, `snapshot`, `screenshot`, `save_as_pdf`, `probe`, `find_tab`, `tabs_list`, `list_downloads`, `list_network_requests`, `get_network_request`, `list_console_messages`, `wait_for` (read-only) | yes, on any recognised transient error |
+| `click`, `fill`, `type_text`, `submit`, `fill_form`, `upload`, `drop`, `mouse_click`, `send_key`, `navigate` (side effects) | **only** when the failure happened *before* the command reached the page (debugger attach failure, extension disconnected, `No tab with id`, ...) — a command already delivered to the page is never retried, so a click cannot fire twice |
+| everything else (e.g. `cdp`, `handle_dialog`, tab close/activate) | never |
+
+Transient error text recognised (case-insensitive): `did not respond within`,
+`debugger` (attach/detach/disconnect), `No tab with id`, `Extension ...
+disconnected` / `not connected`, `connection closed`, `reconnect`.
+
+On success the reply reports the real number of retries in `data.retries`
+(`0` included); on final failure `error_details` carries `retries` and one
+`attempts` entry per re-run (`{"attempt", "error", "delivered"}`). Every audit
+event for the request also carries `retries`. A bad `args.retry` object is a
+parameter error (no retry, no screenshot).
 
 ## Error shapes (read them without an SDK)
 
 | HTTP | Body | Meaning |
 |---|---|---|
-| 200 | `{"status": "ok", "data": {"value": ...}}` | Success; read `data.value`. |
-| 200 | `{"status": "error", "error": "..."}` | Bad args / unknown action / extension failure / timeout. |
+| 200 | `{"status": "ok", "data": {"value": ...}}` | Success; read `data.value`. With `args.retry`, `data.retries` reports how many re-runs happened. |
+| 200 | `{"status": "error", "error": "..."}` | Bad args / unknown action / extension failure / timeout. May carry `error_details` (see below). |
 | 403 | `{"error": "cross-origin POST blocked"}` | A non-localhost `Origin` header was sent (see quickstart). |
 | 503 | `{"error": "extension not connected"}` | No Chrome/Edge extension is connected to the daemon. |
+
+Optional `error_details` on a failed action (never replaces `error`):
+
+| field | when | meaning |
+|---|---|---|
+| `screenshot` | browser action failed and the capture succeeded | absolute path of a PNG of the target tab |
+| `capturedMs` | with `screenshot` | how long the capture took |
+| `screenshot_error` | capture was attempted but failed | why (the original error is unchanged) |
+| `retries` | `args.retry` was given | re-runs actually performed |
+| `attempts` | with `retries` | one `{attempt, error, delivered}` summary per re-run |
 
 Scripts should treat `200` with `status == "ok"` as success and pull the result
 from `data.value`; anything else is a failure even when it is HTTP 200.

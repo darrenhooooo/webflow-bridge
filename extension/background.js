@@ -903,6 +903,10 @@ async function ensureDebuggerLocked(tabId) {
 const EVENT_CAP = 300;
 let netEvents = [];        // [{requestId,url,method,type,status,mimeType,size,timestamp}]
 let consoleEvents = [];    // [{type,text,timestamp}]
+// v1.4 wait_for(networkIdleMs): wall-clock ms of the last request/response
+// event for the current debugger session. Reset on every (re)attach so it
+// only ever describes events we could have observed.
+let lastNetActivity = 0;
 
 // JS-dialog state machine (Page domain). Chrome auto-dismisses dialogs while
 // a debugger is attached UNLESS something listens for the opening event and
@@ -930,6 +934,7 @@ function ringPush(arr, item) {
 async function enableCollectorDomains(tabId) {
   netEvents = [];
   consoleEvents = [];
+  lastNetActivity = Date.now();
   errorPage = null;
   // Page.enable makes JS dialogs (alert/confirm/prompt/beforeunload) surface
   // as Page.javascriptDialogOpening events instead of Chrome auto-dismissing
@@ -990,6 +995,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       const req = params.request || {};
       const url = typeof req.url === 'string' ? req.url : '';
       if (!/^https?:/i.test(url)) return;   // skip chrome-extension:// data: noise
+      lastNetActivity = Date.now();
       ringPush(netEvents, {
         requestId: String(params.requestId || ''),
         url,
@@ -1001,6 +1007,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
         timestamp: Date.now(),
       });
     } else if (method === 'Network.responseReceived') {
+      lastNetActivity = Date.now();
       const rec = netEvents.find((e) => e.requestId === String(params.requestId));
       if (!rec) return;
       const resp = params.response || {};
@@ -2624,24 +2631,29 @@ function fillFormExpression(fields) {
 })()`;
 }
 
-// wait_for check expressions: element exists AND has a layout box; with text,
-// innerText/value must contain it. selector may be null (whole-document text
+// wait_for check expressions. `until` is 'appear' (default — element exists
+// and has a layout box), 'gone' (element removed from the DOM) or 'hidden'
+// (no layout box: visibility:hidden / display:none). With text, appear also
+// needs the text; hidden is satisfied by "element not visible OR text no
+// longer present"; gone (selector is mandatory there) also requires the text
+// to be gone when text is given. selector may be null (whole-document text
 // scan). Every check is an IIFE returning a boolean — replMode-safe.
-function buildWaitCheckExpression(css, text) {
+function buildWaitCheckExpression(css, text, until) {
+  const mode = until || 'appear';
   const t = JSON.stringify(text);
-  if (css && !text) {
-    return `(() => { try { const el = document.querySelector(${JSON.stringify(css)});
-      if (!el) return false; const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      return !!r && (r.width > 0 || r.height > 0); } catch (_) { return false; } })()`;
-  }
-  if (css && text) {
-    return `(() => { try { const el = document.querySelector(${JSON.stringify(css)});
-      if (!el) return false; const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      if (!r || (r.width === 0 && r.height === 0)) return false;
-      const hay = ((el.innerText || "") + " " + (el.value !== undefined ? String(el.value) : ""));
-      return hay.indexOf(${t}) !== -1; } catch (_) { return false; } })()`;
-  }
-  return `(() => { const t = ${t};
+  const cssJson = JSON.stringify(css);
+  const elVisible = `(() => { try { const el = document.querySelector(${cssJson});
+    if (!el) return false; const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    return !!r && (r.width > 0 || r.height > 0); } catch (_) { return false; } })()`;
+  const elGone = `(() => { try { return !document.querySelector(${cssJson}); } catch (_) { return false; } })()`;
+  // No layout box, display:none or visibility:hidden => not visible.
+  const elHidden = `(() => { try { const el = document.querySelector(${cssJson});
+    if (!el) return true;
+    const st = (typeof window.getComputedStyle === 'function') ? window.getComputedStyle(el) : null;
+    if (st && (st.visibility === 'hidden' || st.display === 'none')) return true;
+    const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    return !r || (r.width === 0 && r.height === 0); } catch (_) { return false; } })()`;
+  const textPresent = `(() => { const t = ${t};
     try { const all = document.querySelectorAll("body *");
       for (const el of all) {
         const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
@@ -2649,6 +2661,25 @@ function buildWaitCheckExpression(css, text) {
         const hay = ((el.innerText || "") + " " + (el.value !== undefined ? String(el.value) : ""));
         if (hay.indexOf(t) !== -1) return true;
       } } catch (_) { return false; } return false; })()`;
+  if (mode === 'gone') {
+    if (!text) return elGone;
+    return `(() => (${elGone}) && !(${textPresent}))()`;
+  }
+  if (mode === 'hidden') {
+    if (css && !text) return elHidden;
+    if (!css) return `(() => !(${textPresent}))()`;
+    return `(() => (${elHidden}) || !(${textPresent}))()`;
+  }
+  // appear (default) — unchanged from the pre-v1.4 behaviour.
+  if (css && !text) return elVisible;
+  if (css && text) {
+    return `(() => { try { const el = document.querySelector(${cssJson});
+      if (!el) return false; const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      if (!r || (r.width === 0 && r.height === 0)) return false;
+      const hay = ((el.innerText || "") + " " + (el.value !== undefined ? String(el.value) : ""));
+      return hay.indexOf(${t}) !== -1; } catch (_) { return false; } })()`;
+  }
+  return textPresent;
 }
 
 // "drop": build a real File per item (name/mime/base64 data) in the page
@@ -2723,6 +2754,8 @@ async function handleFillForm(msg) {
 }
 
 // "wait_for" — poll until the target appears (and optionally contains text).
+// v1.4: `until` selects appear|gone|hidden and `networkIdleMs` additionally
+// waits for that many ms without a request/response event on this tab.
 // Selector is resolved ONCE (CSS or @eN) and the check runs page-side every
 // intervalMs; default timeout 10 s, max 90 s (daemon EVAL_TIMEOUT is 120 s).
 async function handleWaitFor(msg) {
@@ -2730,6 +2763,12 @@ async function handleWaitFor(msg) {
     ? Math.min(msg.timeoutMs, 90000) : 10000;
   const interval = (Number.isInteger(msg.intervalMs) && msg.intervalMs > 0)
     ? Math.min(msg.intervalMs, 2000) : 300;
+  const until = (typeof msg.until === 'string' && msg.until) ? msg.until : 'appear';
+  if (until !== 'appear' && until !== 'gone' && until !== 'hidden') {
+    throw new Error("wait_for until must be 'appear', 'gone' or 'hidden'");
+  }
+  const networkIdleMs = (Number.isInteger(msg.networkIdleMs) && msg.networkIdleMs > 0)
+    ? Math.min(msg.networkIdleMs, 30000) : null;
   const tabId = await targetTabId(msg);
   const tab = await chrome.tabs.get(tabId);
 
@@ -2739,21 +2778,33 @@ async function handleWaitFor(msg) {
   }
   const text = (typeof msg.text === 'string' && msg.text) ? msg.text : null;
   if (!css && !text) throw new Error('wait_for needs a selector and/or text');
-  const check = buildWaitCheckExpression(css, text);
+  if (until === 'gone' && !css) {
+    throw new Error("wait_for until='gone' needs a selector");
+  }
+  const check = buildWaitCheckExpression(css, text, until);
   const started = Date.now();
   for (;;) {
     const r = await evaluateOnTab(tab, check);
     if (!r.ok) { send({ id: msg.id, ok: false, error: r.error }); return; }
-    if (r.value === true) {
-      send({ id: msg.id, ok: true,
-             value: { found: true, elapsedMs: Date.now() - started } });
+    const condOk = r.value === true;
+    const idleFor = Date.now() - lastNetActivity;
+    const netOk = networkIdleMs === null || idleFor >= networkIdleMs;
+    if (condOk && netOk) {
+      const value = { found: true, elapsedMs: Date.now() - started,
+                      matched: until };
+      if (networkIdleMs !== null) value.lastNetworkActivityMs = idleFor;
+      send({ id: msg.id, ok: true, value: value });
       return;
     }
     if (Date.now() - started >= timeout) {
+      const target = (css ? ' selector=' + css : '') +
+                     (text ? ' text=' + JSON.stringify(text) : '');
+      const reason = !condOk
+        ? 'condition not met (until=' + until + target + ')'
+        : 'condition met but the page was not network-idle for ' +
+          networkIdleMs + 'ms (last activity ' + idleFor + 'ms ago)';
       send({ id: msg.id, ok: false,
-             error: 'wait_for timed out after ' + timeout + 'ms' +
-                    (css ? ' selector=' + css : '') +
-                    (text ? ' text=' + JSON.stringify(text) : '') });
+             error: 'wait_for timed out after ' + timeout + 'ms: ' + reason });
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, interval));

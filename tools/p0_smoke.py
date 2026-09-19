@@ -29,8 +29,8 @@ import time
 import urllib.error
 import urllib.request
 
-ENDPOINT = "http://127.0.0.1:10086/command"
-PAGE = "http://127.0.0.1:8921/p0_test_page.html"
+ENDPOINT = os.environ.get("WB_ENDPOINT", "http://127.0.0.1:10086/command")
+PAGE = os.environ.get("WB_PAGE", "http://127.0.0.1:8921/p0_test_page.html")
 
 # Daemon shared bearer token (P0): $WBF_TOKEN or ~/.webflow_bridge/token.
 TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".webflow_bridge", "token")

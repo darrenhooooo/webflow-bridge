@@ -196,7 +196,7 @@ class AuditLog:
     def record(self, action: str, *, actor=None, session_id: str = "default",
                args=None, status: str = "ok", error_code=None,
                duration_ms: float = 0.0, policy_decision: str = "allow",
-               target_url=None):
+               target_url=None, retries: int = 0):
         """Append one event. Returns the event dict, or None when disabled /
         skipped / on write failure. Never raises.
 
@@ -224,6 +224,7 @@ class AuditLog:
                     "result": {"status": status, "error_code": error_code},
                     "duration_ms": round(float(duration_ms), 3),
                     "policy_decision": policy_decision,
+                    "retries": int(retries or 0),
                     "prev_hash": self._last_hash,
                 }
                 if params_meta:

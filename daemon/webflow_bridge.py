@@ -134,11 +134,13 @@ import json
 import logging
 import mimetypes
 import os
+import random
 import secrets
 import socket
 import struct
 import threading
 import time
+from collections import namedtuple
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -284,6 +286,216 @@ def check_auth(auth_header: str | None) -> bool:
 
 
 log = logging.getLogger("webflow-bridge")
+
+
+# ---------------------------------------------------------------------------
+# Perception self-heal (v1.4): failure screenshots + transient-error retry
+#
+# Two additive behaviours that never alter a successful reply and never turn a
+# failure into a different error:
+#   * capture — when a browser action fails, grab one PNG of the target tab
+#               and report its path in error_details.screenshot;
+#   * retry   — per-request args.retry re-runs a request that failed on a
+#               transient transport/debugger error. The classifier below is a
+#               pure function; side-effecting actions are retried ONLY when
+#               the failure provably happened before the command reached the
+#               page (never click twice).
+# ---------------------------------------------------------------------------
+
+# Actions that reach the page/browser and can be screenshotted on failure.
+# A parameter-validation failure never reaches the browser action, so it is
+# never captured (see Bridge._capture_failure_screenshot).
+BROWSER_ACTIONS = frozenset({
+    "evaluate", "navigate", "cdp", "find_tab", "snapshot", "click", "fill",
+    "screenshot", "upload", "save_as_pdf", "mouse_click", "send_key",
+    "type_text", "submit", "fill_form", "wait_for", "handle_dialog",
+    "handle_file_chooser", "drop", "resize_page", "list_network_requests",
+    "get_network_request", "list_console_messages", "tabs_list", "tabs_close",
+    "tabs_close_all_but", "tabs_activate", "tabs_open", "probe",
+    "list_downloads",
+})
+
+# Read-only actions: safe to re-run by construction, so a transient failure
+# may be retried automatically.
+NO_SIDE_EFFECT_ACTIONS = frozenset({
+    "evaluate", "snapshot", "screenshot", "save_as_pdf", "probe", "find_tab",
+    "tabs_list", "list_downloads", "list_network_requests",
+    "get_network_request", "list_console_messages", "wait_for",
+})
+# Actions with a page/browser side effect: retried ONLY when the failure
+# happened before the command was delivered to the page.
+SIDE_EFFECT_ACTIONS = frozenset({
+    "click", "fill", "type_text", "submit", "fill_form", "upload", "drop",
+    "mouse_click", "send_key", "navigate",
+})
+
+RETRY_MAX_ATTEMPTS = 5            # extra attempts on top of the first try
+RETRY_DEFAULT_ATTEMPTS = 2        # when a retry object is given without attempts
+RETRY_DEFAULT_BACKOFF_MS = 400
+RETRY_MAX_BACKOFF_MS = 5000
+RETRY_JITTER_FRACTION = 0.25      # +/- 25% jitter on every backoff step
+
+# Error substrings identifying a transient transport/debugger failure
+# (case-insensitive, documented in docs/HTTP_API.md).
+TRANSIENT_ERROR_MARKERS = (
+    "did not respond within",
+    "debugger",
+    "no tab with id",
+    "disconnected",
+    "not connected",
+    "connection closed",
+    "reconnect",
+    "detached",
+    "cannot attach",
+)
+# Error substrings that PROVE the command never reached the page. Only then
+# may a side-effecting action be retried. Deliberately NARROW: bare words like
+# "disconnected"/"detached" can appear in page-exception text, and retrying a
+# delivered click is worse than not retrying at all.
+NOT_DELIVERED_MARKERS = (
+    "extension not connected",       # daemon 503: the WS slot is empty
+    "no tab with id",                # the tab was resolved before any action
+    "cannot attach",                 # debugger attach refused
+    "another debugger",              # attach blocked by DevTools / other client
+    "debugger is not attached",      # CDP session gone before sendCommand
+    "no session with given id",
+)
+
+CAPTURE_ON_ERROR_ENV = "WBF_CAPTURE_ON_ERROR"   # "0"/"false"/"off" disables
+CAPTURE_DIR_ENV = "WBF_CAPTURE_DIR"             # overrides the captures root
+
+# args.retry as parsed: given=False means the caller did not opt into retry.
+RetrySpec = namedtuple("RetrySpec", "given attempts backoff_ms")
+
+
+def parse_retry_spec(args):
+    """args.retry -> (RetrySpec, None) or (None, error_message).
+
+    Absent/None `retry` means no retry (a legacy request keeps the exact old
+    behaviour). `attempts` is the number of EXTRA tries (0..5) and defaults to
+    2 when the retry object omits it; `backoffMs` is the base delay
+    (0..5000, default 400)."""
+    spec = args.get("retry") if isinstance(args, dict) else None
+    if spec is None:
+        return RetrySpec(False, 0, RETRY_DEFAULT_BACKOFF_MS), None
+    if not isinstance(spec, dict):
+        return None, ("'args.retry' must be an object like "
+                      '{"attempts": 2, "backoffMs": 400}')
+    attempts = spec.get("attempts", RETRY_DEFAULT_ATTEMPTS)
+    if not isinstance(attempts, int) or isinstance(attempts, bool) \
+            or not 0 <= attempts <= RETRY_MAX_ATTEMPTS:
+        return None, (f"'args.retry.attempts' must be an integer 0-"
+                      f"{RETRY_MAX_ATTEMPTS} when provided")
+    backoff = spec.get("backoffMs", RETRY_DEFAULT_BACKOFF_MS)
+    if not isinstance(backoff, int) or isinstance(backoff, bool) \
+            or not 0 <= backoff <= RETRY_MAX_BACKOFF_MS:
+        return None, (f"'args.retry.backoffMs' must be an integer 0-"
+                      f"{RETRY_MAX_BACKOFF_MS} when provided")
+    return RetrySpec(True, attempts, backoff), None
+
+
+def is_transient_error(error_text) -> bool:
+    """True when the text names a retryable transport/debugger failure."""
+    low = (error_text or "").lower()
+    return any(marker in low for marker in TRANSIENT_ERROR_MARKERS)
+
+
+def command_reached_page(error_text) -> bool:
+    """False only when the error text PROVES the command never reached the
+    page (so nothing can have executed). Conservative by design: an unknown
+    failure counts as reached."""
+    low = (error_text or "").lower()
+    return not any(marker in low for marker in NOT_DELIVERED_MARKERS)
+
+
+def classify_retry(action, error_text, delivered_to_page) -> bool:
+    """Pure retry classifier: may this failed (action, error) be retried?
+
+    * unknown / non-browser actions -> never;
+    * transient transport/debugger errors -> retryable for no-side-effect
+      actions, and for side-effecting actions ONLY when the command had not
+      been delivered to the page (a click that already ran must not run
+      twice)."""
+    if action not in NO_SIDE_EFFECT_ACTIONS \
+            and action not in SIDE_EFFECT_ACTIONS:
+        return False
+    if not is_transient_error(error_text):
+        return False
+    if action in SIDE_EFFECT_ACTIONS and delivered_to_page:
+        return False
+    return True
+
+
+def retry_delay_seconds(base_ms, attempt) -> float:
+    """Exponential backoff (base * 2^(attempt-1)) with +/-25% jitter, capped
+    at RETRY_MAX_BACKOFF_MS. `attempt` is 1-based."""
+    base = min(base_ms * (2 ** max(0, attempt - 1)), RETRY_MAX_BACKOFF_MS)
+    jitter = base * RETRY_JITTER_FRACTION * (random.random() * 2.0 - 1.0)
+    return max(0.0, (base + jitter) / 1000.0)
+
+
+def error_text_of(body) -> str:
+    """Best-effort error string out of a response body ('' when absent)."""
+    if isinstance(body, dict):
+        return str(body.get("error") or body.get("status") or "")
+    return str(body or "")
+
+
+def execute_with_retry(dispatch_fn, payload, spec):
+    """Run dispatch_fn(payload) under `spec` -> (status, body, retries, log).
+
+    Pure wrapper around a dispatch callable so the policy is unit-testable
+    with a fake dispatch. `retries` counts attempts actually re-run; `log` is
+    one {attempt, error, delivered} entry per re-run."""
+    action = payload.get("action") if isinstance(payload, dict) else None
+    attempts_log = []
+    retries = 0
+    status, body = 200, {"status": "error", "error": "internal error"}
+    for i in range(spec.attempts + 1):
+        status, body = dispatch_fn(payload)
+        if status == 200 and isinstance(body, dict) \
+                and body.get("status") == "ok":
+            return status, body, retries, attempts_log
+        if i >= spec.attempts:
+            break
+        err = error_text_of(body)
+        delivered = command_reached_page(err)
+        if not classify_retry(action, err, delivered):
+            break
+        attempts_log.append({"attempt": i + 1, "error": err,
+                             "delivered": delivered})
+        retries += 1
+        delay = retry_delay_seconds(spec.backoff_ms, i + 1)
+        if delay > 0:
+            time.sleep(delay)
+    return status, body, retries, attempts_log
+
+
+def capture_enabled(args) -> bool:
+    """WBF_CAPTURE_ON_ERROR=0 (global) or args.captureOnError=false (single
+    request) turns the failure screenshot off; default ON."""
+    raw = os.environ.get(CAPTURE_ON_ERROR_ENV, "1").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if isinstance(args, dict) and args.get("captureOnError") is False:
+        return False
+    return True
+
+
+def capture_root() -> str:
+    """Root of the captures tree: WBF_CAPTURE_DIR or ~/.webflow_bridge/captures."""
+    return os.environ.get(CAPTURE_DIR_ENV) or os.path.join(DEFAULT_TOKEN_DIR,
+                                                           "captures")
+
+
+def capture_path(action, root=None, now=None) -> str:
+    """<root>/<YYYY-MM-DD>/<HHMMSS>-<action>-<4 hex>.png (pure, testable)."""
+    stamp = now if now is not None else datetime.now()
+    safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_"
+                    for ch in str(action or "action")) or "action"
+    return os.path.join(root or capture_root(), stamp.strftime("%Y-%m-%d"),
+                        "%s-%s-%s.png" % (stamp.strftime("%H%M%S"), safe,
+                                          secrets.token_hex(2)))
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +668,10 @@ class Bridge:
         # threading.local keeps concurrent HTTP requests on different threads
         # from leaking the flag into each other's roundtrips.
         self._humanize_tls = threading.local()
+        # Per-request self-heal flag: True once an action reached the browser
+        # transport (_roundtrip). A failure that never got there is a
+        # validation/pre-flight error and must not be screenshotted.
+        self._roundtrip_tls = threading.local()
 
     # -------- WS server lifecycle -----------------------------------------
 
@@ -818,6 +1034,10 @@ class Bridge:
             # P1: dispatch() humanized this request — stamp the WS payload so
             # the extension adds pacing to its browser actions.
             ws_payload["humanize"] = True
+        # v1.4: mark that this request actually reached the browser transport
+        # (dispatch() reads this to tell a browser failure from a validation
+        # failure before taking a failure screenshot).
+        self._roundtrip_tls.reached = True
         rid = ws_payload["id"]
         fut = concurrent.futures.Future()
         with self._lock:
@@ -886,17 +1106,102 @@ class Bridge:
         event per action (success AND failure), then returns the response
         unchanged. Audit is fail-open and cannot alter the result; see
         daemon/audit.py.
+
+        v1.4 self-heal: `args.retry` re-runs a transient failure (pure policy
+        see execute_with_retry / classify_retry) and a browser-action failure
+        carries an automatic PNG of the target tab in error_details.
         """
         started = time.perf_counter()
         status, body = 200, {"status": "error", "error": "internal error"}
+        retries = 0
         try:
-            status, body = self._dispatch(payload, who)
+            args = payload.get("args") if isinstance(payload, dict) else None
+            action = payload.get("action") if isinstance(payload, dict) else None
+            spec, retry_err = parse_retry_spec(args)
+            if retry_err is not None:
+                # A bad args.retry is a parameter error: no retry, no screenshot.
+                status, body = 200, {"status": "error", "error": retry_err}
+            else:
+                self._roundtrip_tls.reached = False
+                status, body, retries, attempts_log = execute_with_retry(
+                    lambda p: self._dispatch(p, who), payload, spec)
+                if status == 200 and isinstance(body, dict) \
+                        and body.get("status") == "ok":
+                    if spec.given:
+                        # report 0 too — the caller opted into retry semantics
+                        body.setdefault("data", {})["retries"] = retries
+                else:
+                    self._error_details(payload, action, args, body, retries,
+                                        attempts_log, spec, status)
             return status, body
         finally:
             self._audit_event(payload, who, status, body,
-                              (time.perf_counter() - started) * 1000.0)
+                              (time.perf_counter() - started) * 1000.0,
+                              retries=retries)
 
-    def _audit_event(self, payload, who, status, body, duration_ms) -> None:
+    def _error_details(self, payload, action, args, body, retries,
+                       attempts_log, spec, http_status) -> None:
+        """Attach the additive error_details field to a failed response.
+
+        Never touches `error` or the HTTP status: a screenshot problem only
+        adds screenshot_error. Empty details are omitted, so a legacy failure
+        (no retry, capture disabled) keeps its exact old body.
+        """
+        if not isinstance(body, dict):
+            return
+        details = {}
+        if spec.given or attempts_log:
+            details["retries"] = retries
+            details["attempts"] = attempts_log
+        self._capture_failure_screenshot(action, args, http_status, details)
+        if details:
+            body["error_details"] = details
+
+    def _capture_failure_screenshot(self, action, args, http_status, details) -> None:
+        """On a browser-action failure, save one PNG of the target tab and put
+        its absolute path in error_details.screenshot. Reuses the existing
+        screenshot action (one _dispatch call) instead of new CDP code.
+
+        Skipped for: non-browser actions, validation/pre-flight failures
+        (never reached the transport), 503 (no extension to ask) and when
+        capture is disabled. Any failure here becomes screenshot_error."""
+        if action not in BROWSER_ACTIONS:
+            return
+        if not getattr(self._roundtrip_tls, "reached", False):
+            return
+        if http_status == 503:
+            return
+        if not capture_enabled(args):
+            return
+        started = time.perf_counter()
+        try:
+            tab_id, err = self._validated_tab_id(args if isinstance(args, dict) else {})
+            if err:
+                tab_id = None
+            sc_args = {}
+            if tab_id is not None:
+                sc_args["tabId"] = tab_id
+            st, sc_body = self._dispatch({"action": "screenshot",
+                                          "args": sc_args})
+            value = (sc_body.get("data") or {}).get("value") \
+                if isinstance(sc_body, dict) else None
+            raw = (value or {}).get("base64")
+            if st != 200 or not isinstance(sc_body, dict) \
+                    or sc_body.get("status") != "ok" or not raw:
+                details["screenshot_error"] = (
+                    error_text_of(sc_body) or f"screenshot failed (HTTP {st})")
+                return
+            path = capture_path(action)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as fh:
+                fh.write(base64.b64decode(raw))
+            details["screenshot"] = path
+            details["capturedMs"] = int((time.perf_counter() - started) * 1000)
+        except Exception as exc:                    # noqa: BLE001 (fail-open)
+            details["screenshot_error"] = f"{type(exc).__name__}: {exc}"
+
+    def _audit_event(self, payload, who, status, body, duration_ms,
+                     retries: int = 0) -> None:
         """Build and write the v0 event for one dispatch call. Never raises."""
         if AUDIT is None:
             return
@@ -918,7 +1223,8 @@ class Bridge:
                 actor=who, session_id=str(session),
                 args=args if isinstance(args, dict) else None,
                 status="ok" if ok else "err", error_code=error_code,
-                duration_ms=duration_ms, policy_decision="allow")
+                duration_ms=duration_ms, policy_decision="allow",
+                retries=retries)
         except Exception as exc:                # noqa: BLE001 (fail-open)
             log.warning("audit event failed (fail-open): %s", exc)
 
@@ -1291,6 +1597,24 @@ class Bridge:
                     text is None or not str(text).strip()):
                 return 200, {"status": "error",
                              "error": "'wait_for' needs 'args.selector' and/or 'args.text'"}
+            # v1.4 wait_for enhancements: until=appear|gone|hidden and an
+            # optional networkIdleMs gate (extension side does the polling).
+            until = args.get("until")
+            if until is not None and until not in ("appear", "gone", "hidden"):
+                return 200, {"status": "error",
+                             "error": "'args.until' must be one of 'appear', "
+                                      "'gone', 'hidden' when provided"}
+            if until == "gone" and (selector is None or not str(selector).strip()):
+                return 200, {"status": "error",
+                             "error": "'wait_for' with until='gone' requires 'args.selector'"}
+            network_idle = args.get("networkIdleMs")
+            if network_idle is not None and (
+                not isinstance(network_idle, int) or isinstance(network_idle, bool)
+                or not 0 < network_idle <= 30000
+            ):
+                return 200, {"status": "error",
+                             "error": "'args.networkIdleMs' must be an integer "
+                                      "1-30000 when provided"}
             for key in ("timeoutMs", "intervalMs"):
                 val = args.get(key)
                 if val is not None and (not isinstance(val, int) or isinstance(val, bool) or val <= 0):
@@ -1308,6 +1632,10 @@ class Bridge:
                 ws_payload["timeoutMs"] = args["timeoutMs"]
             if args.get("intervalMs") is not None:
                 ws_payload["intervalMs"] = args["intervalMs"]
+            if until is not None:
+                ws_payload["until"] = until
+            if network_idle is not None:
+                ws_payload["networkIdleMs"] = network_idle
             if tab_id is not None:
                 ws_payload["tabId"] = tab_id
             ok, res = self._roundtrip(ws_payload)

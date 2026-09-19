@@ -23,7 +23,7 @@ Webflow Bridge 不是云浏览器服务，不是 cookie 仓库，也不是需要
 |---|---|
 | 🖥️ **驱动你正在用的浏览器** | 直接操作你已登录的活动标签页 —— 真实会话、cookie 与页面状态全在，没有需要同步的隐形浏览器。 |
 | 🤖 **为脚本与 Agent 而生** | 统一的 `POST /command` 协议；浏览器桥的 agent skill 可 1:1 映射。 |
-| 🎯 **30+ 浏览器动作** | 点击、输入、填表、上传/拖放文件、截图、存 PDF、读页面、切标签、看网络流量与控制台日志——以及更多。 |
+| 🎯 **30+ 浏览器动作** | 点击、输入、填表、上传/拖放文件、截图、存 PDF、读页面、切标签、看网络流量与控制台日志——以及更多。动作失败时自动留下当前标签页截图，请求还可选择对瞬时错误自动重试。 |
 | 🪟 **JS 弹窗不卡流程** | alert / confirm / prompt 自动应答：确定、取消或输入答案。 |
 | 📎 **上传不弹系统框** | 点上传按钮、交给它本地文件路径即可 —— 系统"打开文件"窗口根本不会出现。 |
 | 🔓 **严格站点也能跑** | 页面禁用自身脚本的站点照常执行 —— x.com 等实测可用。 |
@@ -134,5 +134,5 @@ Webflow Bridge **免费开源（MIT）** —— 见 [LICENSE](LICENSE)。如果�
 
 - ⭐ 点 Star —— [github.com/darrenhooooo/webflow-bridge](https://github.com/darrenhooooo/webflow-bridge)
 - 🐛 报 Bug / 提需求 —— [Issues](https://github.com/darrenhooooo/webflow-bridge/issues)
-- 📦 Releases —— [v1.3.0](https://github.com/darrenhooooo/webflow-bridge/releases)
+- 📦 Releases —— [v1.4.0](https://github.com/darrenhooooo/webflow-bridge/releases)
 - ✉️ 联系 —— darren.hou@outlook.com

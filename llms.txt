@@ -22,7 +22,7 @@ Webflow Bridge is a small Python daemon on your machine plus a Chrome/Edge exten
 
 ## Actions
 
-One JSON `POST /command` surface for 30+ browser actions — page reads and JS (`evaluate`, `cdp`), navigation and tabs (`navigate`, `tabs_list`, `tabs_open`, `find_tab`, ...), interaction (`click`, `fill`, `snapshot`, `type_text`, `send_key`, `mouse_click`, `upload`), capture (`screenshot`, `save_as_pdf`), and native dialogs (`handle_dialog`, `set_dialog_policy`). The full list, one curl per action, is in `docs/HTTP_API.md`.
+One JSON `POST /command` surface for 30+ browser actions — page reads and JS (`evaluate`, `cdp`), navigation and tabs (`navigate`, `tabs_list`, `tabs_open`, `find_tab`, ...), interaction (`click`, `fill`, `snapshot`, `type_text`, `send_key`, `mouse_click`, `upload`), capture (`screenshot`, `save_as_pdf`), and native dialogs (`handle_dialog`, `set_dialog_policy`). A failed browser action returns a PNG of the tab in `error_details.screenshot`, and `args.retry` optionally retries transient errors. The full list, one curl per action, is in `docs/HTTP_API.md`.
 
 ## MCP
 
