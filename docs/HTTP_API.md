@@ -644,9 +644,9 @@ to ...*"), **failed to load / certificate / cancelled auth**
 | `probe` used to hang behind a dialog | The injection paths wait on the frozen renderer | No longer: `probe` answers in ms with `dialog.blocking: true` and the paths marked `skipped`; resolve the dialog with `handle_dialog` |
 | `screenshot {fullPage: true}` answers `{"code":-32000,"message":"Page is too large."}` | Chrome's own cap on capture dimensions (common for very tall pages, and more easily hit in `--headless`) | Not a bridge defect: use a viewport screenshot, a smaller viewport, or a headed browser; the same page's viewport screenshot and `save_as_pdf` still work |
 | `no JavaScript dialog is showing within 2000ms` | No dialog was open (already auto-accepted?) or the dialog is on another tab | Check `dialog.policy` via `probe`; pass `tabId` |
-| `extension_connected: true` but nothing works | The WebSocket is up but the debugger is blocked/dead | `/status` is connection-only; run `probe`, or send the same request again with `args.retry` (transient debugger/extension errors are retried automatically when you opt in — see Self-heal below) |
+| `extension_connected: true` but nothing works | The WebSocket is up but the debugger is blocked/dead | `/status` is connection-only; run `probe`, or send the same request again with `args.retry` (transient debugger/extension errors are retried automatically when you opt in — see Failure handling below) |
 
-## Self-heal — failure screenshots and transient retries
+## Failure handling — screenshots, retries, waits
 
 Both features are additive: they never change a successful reply and never
 replace the original `error`. Legacy requests (no new args) behave exactly as

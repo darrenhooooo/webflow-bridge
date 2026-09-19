@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Webflow Bridge self-heal smoke (v1.4) — isolated stack only.
+"""Webflow Bridge failure-handling smoke (v1.4) — isolated stack only.
 
 Proves, end to end, the three v1.4 behaviours and that they break nothing:
 
@@ -499,7 +499,7 @@ def run_p0_regression(env_token, work_tmp, label):
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    print("Webflow Bridge self-heal smoke (v1.4) — isolated stack only")
+    print("Webflow Bridge failure-handling smoke (v1.4) — isolated stack only")
     failures = 0
     case_failures = 0
     cases = []

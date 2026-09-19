@@ -289,7 +289,7 @@ log = logging.getLogger("webflow-bridge")
 
 
 # ---------------------------------------------------------------------------
-# Perception self-heal (v1.4): failure screenshots + transient-error retry
+# Failure handling (v1.4): failure screenshots + transient-error retry
 #
 # Two additive behaviours that never alter a successful reply and never turn a
 # failure into a different error:
@@ -1107,7 +1107,7 @@ class Bridge:
         unchanged. Audit is fail-open and cannot alter the result; see
         daemon/audit.py.
 
-        v1.4 self-heal: `args.retry` re-runs a transient failure (pure policy
+        v1.4 failure handling: `args.retry` re-runs a transient failure (pure policy
         see execute_with_retry / classify_retry) and a browser-action failure
         carries an automatic PNG of the target tab in error_details.
         """
