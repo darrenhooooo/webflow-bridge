@@ -3107,12 +3107,14 @@ async function handleListConsoleMessages(msg) {
 // Removed from the matrix: P1a (content-script eval — the content script no
 // longer exists; MV3 hardcodes a CSP into isolated worlds that forbids
 // eval/new Function) and P2/P3 (executeScript 'code' strings — removed from
-// the API; only 'files' and 'func' are accepted). Kept: P4/P6 (executeScript
-// func in MAIN/ISOLATED worlds), P5 (a func that new Function()s the snippet
-// in the MAIN world — page CSP blocks it on strict sites, which is exactly
-// why the evaluate action uses chrome.debugger), and P7 (CDP Runtime.evaluate
-// through the SHARED session manager above — it does not attach/detach per
-// call and leaves the session in the same managed state as evaluate).
+// the API; only 'files' and 'func' are accepted). Kept but now answering
+// {ok:false, error:'unavailable: ...'} because the manifest no longer requests
+// the "scripting" permission: P4/P6 (executeScript func in MAIN/ISOLATED
+// worlds) and P5 (a func that new Function()s the snippet in the MAIN world).
+// The one path that actually drives tabs is P7 (CDP Runtime.evaluate through
+// the SHARED session manager above — it does not attach/detach per call and
+// leaves the session in the same managed state as evaluate); it does not use
+// the "scripting" permission and is unaffected.
 
 function probeObject() {
   return { url: location.href, title: document.title, probe: 1 + 1 };
@@ -3169,18 +3171,20 @@ async function handleProbe(msg) {
     return;
   }
 
-  // P4-P6 — chrome.scripting.executeScript func-based paths (needs
-  // "scripting" + host permissions; both are declared in manifest.json).
-  await probePath(paths, 'P4_executeScript_func_MAIN',
-    () => executeScriptResult({ target: { tabId: tab.id }, world: 'MAIN', func: probeObject }));
-  await probePath(paths, 'P5_executeScript_func_eval_MAIN',
-    () => executeScriptResult({
-      target: { tabId: tab.id }, world: 'MAIN',
-      func: (c) => { const f = new Function('return (' + c + ')'); return f(); },
-      args: [code],
-    }));
-  await probePath(paths, 'P6_executeScript_func_ISOLATED',
-    () => executeScriptResult({ target: { tabId: tab.id }, world: 'ISOLATED', func: probeObject }));
+  // P4-P6 — chrome.scripting.executeScript func-based paths. The manifest no
+  // longer requests the "scripting" permission (nor any website host
+  // permission): they are not needed to drive the user's tabs — that is
+  // chrome.debugger's job (P7) — and the store rejects permissions the single
+  // purpose does not require. The three paths stay in the matrix and answer
+  // honestly instead of vanishing, so the shape of the probe reply is
+  // unchanged.
+  const scriptingUnavailable = {
+    ok: false,
+    error: "unavailable: the extension does not request the 'scripting' permission",
+  };
+  paths['P4_executeScript_func_MAIN'] = Object.assign({}, scriptingUnavailable);
+  paths['P5_executeScript_func_eval_MAIN'] = Object.assign({}, scriptingUnavailable);
+  paths['P6_executeScript_func_ISOLATED'] = Object.assign({}, scriptingUnavailable);
 
   // P7 — chrome.debugger (CDP) Runtime.evaluate, the same channel DevTools'
   // console uses. It runs in the page's MAIN world and is NOT subject to page
@@ -3223,20 +3227,6 @@ async function probePath(paths, name, fn) {
   } catch (err) {
     paths[name] = { ok: false, error: String((err && err.message) || err) };
   }
-}
-
-// executeScript resolves to an array of per-frame InjectionResults; the
-// snippet's completion value is result[0].result. Some failures surface as a
-// resolved result object carrying an 'error' key rather than a rejection; a
-// rejected promise (CSP / permission / runtime.lastError) becomes a throw.
-async function executeScriptResult(opts) {
-  const results = await chrome.scripting.executeScript(opts);
-  if (chrome.runtime.lastError) {
-    throw new Error(String(chrome.runtime.lastError.message));
-  }
-  const first = Array.isArray(results) ? results[0] : undefined;
-  if (first && first.error) throw new Error(String(first.error));
-  return first ? first.result : undefined;
 }
 
 // CDP (chrome.debugger) Runtime.evaluate through the shared session manager:

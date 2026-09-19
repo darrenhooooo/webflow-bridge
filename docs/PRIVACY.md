@@ -26,6 +26,17 @@ Webflow Bridge has two parts, both of which you run on your own machine:
   loopback addresses `127.0.0.1`.
 - **Nothing is transmitted to any remote server.** There is no telemetry, no
   analytics, no usage tracking, and no third-party code.
+- **Types of data processed (all local only):**
+  - **Website content** — the page content, DOM, and screenshots of the tab you
+    choose to drive.
+  - **User activity** — the driven tab's network requests and console messages,
+    read by the monitoring commands.
+  - **Tab URLs and titles** — read for the current tab so the caller knows what
+    it is driving.
+  These move only in memory between your local scripts, the daemon, and the
+  extension; they are not written to disk and not transmitted anywhere. The
+  only data persisted locally is the local daemon token and the
+  Disconnect/Reconnect state, stored in `chrome.storage.local`.
 
 ## Not a remote-code-execution service
 
@@ -41,8 +52,9 @@ run the daemon on machines you trust.
   CDP commands.
 - `tabs` — read tab URLs/titles and navigate, list, open, close, and activate
   tabs.
-- `scripting` / `activeTab` — declared alongside `debugger` for extension API
-  availability.
+- Host permission `http://127.0.0.1/*` — read the local daemon's auth token
+  from `http://127.0.0.1:10086/config` when it is not yet cached. Loopback
+  only: the extension requests no access to any website.
 - `alarms` — a background watchdog that reconnects to the daemon if the
   connection drops.
 - `tabGroups` — name the tab group when a script opens a new tab with a group
@@ -50,6 +62,20 @@ run the daemon on machines you trust.
 - `storage` — save the local daemon token and the Disconnect/Reconnect state
   on this machine, in your browser's local extension storage; this data is
   never uploaded.
+
+## Limited Use
+
+Webflow Bridge's use of user data is limited to providing its single purpose: running the
+commands that a script or agent on the user's own machine sends, on the tab the user chooses
+to drive.
+
+- It does not sell or transfer user data to third parties.
+- It does not use user data for advertising, profiling, or creditworthiness.
+- It does not allow humans — including the developer — to read user data: the data never
+  leaves the user's device.
+- It does not transmit user data anywhere off the device. The only network endpoints are
+  loopback: `http://127.0.0.1:10086` (local daemon HTTP) and `ws://127.0.0.1:10087` (local
+  daemon WebSocket).
 
 ## Removing Webflow Bridge
 

@@ -80,7 +80,7 @@ py -3.11 ff/daemon/ff_bridge.py
 python ff/daemon/ff_smoke.py    # P0: 4 步（evaluate/navigate/title/tabs_list）
 python ff/daemon/ff_p1_smoke.py # P1: 13 步（输入面 + screenshot/pdf/upload，本地测试页）
 python ff/daemon/ff_p2_smoke.py # P2: 13 步（snapshot/network/console/dialog/humanize，本地测试页）
-python ff/daemon/ff_selfheal_smoke.py # v1.4 失败处理 + wait_for（自建一次性 profile，独立端口）
+python ff/daemon/ff_selfheal_smoke.py # v1.5.0 失败处理 + wait_for（自建一次性 profile，独立端口）
 python ff/daemon/ff_actions_smoke.py # fill_form/submit/drop/list_downloads/resize_page（自建一次性 profile，独立端口）
 ```
 
@@ -114,7 +114,7 @@ Firefox（`:9122`）与 daemon（`:10097`），跑完杀掉并确认端口释放
 | `list_console_messages` | `log.entryAdded` 订阅 | ✅ P2 |
 | `handle_dialog` | userPromptOpened 单槽状态机，accept/dismiss/promptText | ✅ P2 |
 | `humanize` | per-request pacing（--humanize / body 顶层 / args.humanize） | ✅ P2 |
-| `wait_for` | 页面侧轮询（BiDi `script.evaluate`）：`appear`/`gone`/`hidden` + `networkIdleMs`；返回体与 Chrome 同形 | ✅ v1.4.0 |
+| `wait_for` | 页面侧轮询（BiDi `script.evaluate`）：`appear`/`gone`/`hidden` + `networkIdleMs`；返回体与 Chrome 同形 | ✅ v1.5.0 |
 | `fill_form` | 单次 `script.evaluate` 批量填值（input/textarea/select native setter + input/change），`{fields:[{selector,value}]}` → `{success,filled,errors}`；逐字段报错不中断 | ✅ 已实现（与 Chrome 同形） |
 | `submit` | `script.evaluate` 内 `requestSubmit()`（无 form 时退化为 `el.click()`）→ `{success,tag,mode}` | ✅ 已实现 |
 | `drop` | daemon 读本地文件转 base64 → 页面内 `DataTransfer` + `DragEvent`（dragenter/dragover/drop/dragleave，与 Chrome 同一页面路径；32 MiB 上限） | ✅ 已实现 |
@@ -127,7 +127,7 @@ Firefox（`:9122`）与 daemon（`:10097`），跑完杀掉并确认端口释放
 响应契约与 Chrome 版一致：`200 {status:ok, data:{value}}` /
 `200 {status:error, error}`；跨域 POST → 403；鉴权失败 → 401。
 
-## 失败处理（v1.4，与 Chrome 侧同形）
+## 失败处理（v1.5.0，与 Chrome 侧同形）
 
 - **失败截图**：任何**已到达浏览器**的动作失败时，`error_details.screenshot`
   给出 PNG 绝对路径（另有 `capturedMs`）；截图本身失败给 `screenshot_error`。

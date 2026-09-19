@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Webflow Bridge",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "default_locale": "zh_CN",
   "description": "__MSG_extDescription__",
-  "permissions": ["scripting", "activeTab", "tabs", "debugger", "alarms", "tabGroups", "storage"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["tabs", "debugger", "alarms", "tabGroups", "storage"],
+  "host_permissions": ["http://127.0.0.1/*"],
   "background": {
     "service_worker": "background.js"
   },
